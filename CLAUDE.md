@@ -9,6 +9,20 @@ Primary goals: works on cheap Android phones, offline-capable PWA, P&L in local 
 
 ## Prompts Completed
 
+### Prompt 21 — Dashboard interactive polish ✅
+- **`components/dashboard/DashboardClient.tsx`** (only file modified):
+  - **KPI card hover**: `translateY(-3px)`, border `#1A2640 → #2A3A54`, `box-shadow 0 8px 20px -8px rgba(0,0,0,.5)`, accent bar 2px → 3px — all 180ms ease. `cursor: pointer` on all four cards.
+  - **KPI card click ripple**: `spawnRipple()` helper appends a `<div>` at exact click coords relative to the card, coloured with the card's own accent at 0.25 opacity, scales 0→4× and fades out over 500ms via `@keyframes tc-ripple`, then removes itself.
+  - **KPI card navigation**: Net P&L → `/journal`, Phantom P&L → `/journal`, Win rate → `/analytics`, Rule compliance → `/settings/rules` (via `useRouter` inside each sub-component; no existing onClick conflicts).
+  - **Custom equity tooltip**: `CustomEquityTooltip` component replaces the default Recharts tooltip. Shows the hovered date + actual P&L formatted via `useCurrency().formatPnl()`. Styled: `bg #0A1220`, `border 1px solid #E2B96F`, `border-radius 7px`, `padding 6px 10px`, `font-size 10px`. `activeDot` updated to `r:4, fill:#E2B96F, stroke:#0A0F1A, strokeWidth:2`.
+  - **Discipline ring load animation**: `ScoreRing` now starts `strokeDashoffset` at `circ` (empty) on mount and animates to the target value via `1.4s cubic-bezier(.16,1,.3,1)` triggered by a `useEffect` with an 80ms delay. Re-triggers whenever `score` prop changes (e.g. after data loads).
+  - **Discipline ring click pulse**: Discipline card now has `onClick={handleDisciplineClick}` and `cursor: pointer`. Handler removes the `tc-score-pulse` class, forces reflow via `el.getBoundingClientRect()`, then re-adds it — re-triggering `@keyframes tc-score-pulse` (scale 1→1.06→1 over 400ms) on every click.
+  - **CSS additions**: `@keyframes tc-ripple`, `@keyframes tc-score-pulse`, `.tc-score-pulse` class added to the inline `<style>` block.
+  - `AccentBar` updated to accept `taller?: boolean` prop (2px default, 3px when true).
+  - `Card` updated to accept optional `onClick` prop.
+  - Data fetching, API calls, and layout structure unchanged — purely additive interaction layer.
+- `tsc --noEmit` → zero errors ✅
+
 ### Prompt 20 — Real currency conversion wired end-to-end ✅
 - **Root cause**: `lib/currency.ts` had no conversion logic — `formatCurrency` only applied the target currency's symbol to the raw USD amount. Every P&L display site also hardcoded `$` and bypassed the currency setting entirely.
 - **`lib/currency.ts`** (full rewrite): Added module-level `_rates` cache (starts as fallback). `fetchRates()` checks `localStorage` (`tc_fx_rates`, 1 hr TTL) then calls `https://api.frankfurter.app/latest?from=USD`; falls back to hardcoded rates (`NGN: 1600, GHS: 15, KES: 130, ZAR: 18, GBP: 0.79, EUR: 0.92`) on any error. `convertFromUSD(amount, currency)` multiplies by `_rates[currency]`. `formatCurrency(amount, currency)` converts then formats with `Intl.NumberFormat`. Backward-compat aliases (`AfricanCurrency`, `CURRENCY_CONFIG`, `formatPips`, `formatRR`, `formatPercent`) preserved.

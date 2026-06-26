@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -100,7 +101,6 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** Normalise legacy DB values (tokyo, sydney, new_york, overlap_london_ny) to display labels. */
 function sessionLabel(key: string | null | undefined): string {
   if (!key) return "";
   if (key === "newyork"  || key === "new_york" || key === "overlap_london_ny") return "New York";
@@ -135,9 +135,9 @@ function Skeleton({ w = "100%", h = 16, r = 6 }: { w?: string | number; h?: numb
   );
 }
 
-function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+function Card({ children, style, onClick }: { children: React.ReactNode; style?: React.CSSProperties; onClick?: () => void }) {
   return (
-    <div style={{
+    <div onClick={onClick} style={{
       backgroundColor: "#111C2E", border: "1px solid #1A2640",
       borderRadius: 11, padding: "14px 16px",
       ...style,
@@ -147,27 +147,73 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
   );
 }
 
-function AccentBar({ color }: { color: string }) {
+function AccentBar({ color, taller = false }: { color: string; taller?: boolean }) {
   return (
-    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, backgroundColor: color }} />
+    <div style={{
+      position: "absolute", top: 0, left: 0, right: 0,
+      height: taller ? 3 : 2,
+      backgroundColor: color,
+      transition: "height 180ms ease",
+    }} />
   );
 }
 
-/* KPI card — used for Net P&L, Phantom P&L, Win Rate */
+function spawnRipple(e: React.MouseEvent<HTMLDivElement>, accent: string) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const el = document.createElement("div");
+  el.style.cssText = [
+    "position:absolute",
+    `left:${x}px`,
+    `top:${y}px`,
+    "width:8px",
+    "height:8px",
+    "border-radius:50%",
+    `background:${accent}`,
+    "opacity:0.25",
+    "pointer-events:none",
+    "transform:translate(-50%,-50%) scale(0)",
+    "animation:tc-ripple 500ms ease-out forwards",
+  ].join(";");
+  e.currentTarget.appendChild(el);
+  setTimeout(() => el.remove(), 520);
+}
+
+/* KPI card — Net P&L, Phantom P&L, Win Rate */
 function KpiCard({
-  label, value, sub, accent, valueColor, loading, bottom,
+  label, value, sub, accent, valueColor, loading, bottom, href,
 }: {
   label: string; value: string; sub: string;
   accent: string; valueColor?: string; loading: boolean;
-  bottom?: React.ReactNode;
+  bottom?: React.ReactNode; href?: string;
 }) {
+  const router = useRouter();
+  const [hovered, setHovered] = useState(false);
+
+  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
+    spawnRipple(e, accent);
+    if (href) router.push(href);
+  }
+
   return (
-    <div className="tc-kpi-card" style={{
-      backgroundColor: "#111C2E", border: "1px solid #1A2640",
-      borderRadius: 11, padding: "12px 14px",
-      position: "relative", overflow: "hidden",
-    }}>
-      <AccentBar color={accent} />
+    <div
+      className="tc-kpi-card"
+      onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        backgroundColor: "#111C2E",
+        border: `1px solid ${hovered ? "#2A3A54" : "#1A2640"}`,
+        borderRadius: 11, padding: "12px 14px",
+        position: "relative", overflow: "hidden",
+        cursor: "pointer",
+        transform: hovered ? "translateY(-3px)" : "translateY(0)",
+        boxShadow: hovered ? "0 8px 20px -8px rgba(0,0,0,.5)" : "none",
+        transition: "transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
+      }}
+    >
+      <AccentBar color={accent} taller={hovered} />
       <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060", margin: "0 0 6px" }}>
         {label}
       </p>
@@ -189,20 +235,39 @@ function KpiCard({
   );
 }
 
-/* Compliance card (custom bottom — progress bar) */
+/* Compliance card */
 function ComplianceCard({ compliance, hasData, loading }: { compliance: number; hasData: boolean; loading: boolean }) {
-  // Only colour the accent once we have real compliance data — grey until then
+  const router = useRouter();
+  const [hovered, setHovered] = useState(false);
+
   const color = !hasData ? "#2E4060"
     : compliance >= 80 ? "#50E3B8"
     : compliance >= 50 ? "#E2B96F"
     : "#F07C7C";
+
+  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
+    spawnRipple(e, color);
+    router.push("/settings/rules");
+  }
+
   return (
-    <div className="tc-kpi-card" style={{
-      backgroundColor: "#111C2E", border: "1px solid #1A2640",
-      borderRadius: 11, padding: "12px 14px",
-      position: "relative", overflow: "hidden",
-    }}>
-      <AccentBar color={color} />
+    <div
+      className="tc-kpi-card"
+      onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        backgroundColor: "#111C2E",
+        border: `1px solid ${hovered ? "#2A3A54" : "#1A2640"}`,
+        borderRadius: 11, padding: "12px 14px",
+        position: "relative", overflow: "hidden",
+        cursor: "pointer",
+        transform: hovered ? "translateY(-3px)" : "translateY(0)",
+        boxShadow: hovered ? "0 8px 20px -8px rgba(0,0,0,.5)" : "none",
+        transition: "transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
+      }}
+    >
+      <AccentBar color={color} taller={hovered} />
       <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060", margin: "0 0 6px" }}>
         Rule compliance
       </p>
@@ -216,7 +281,6 @@ function ComplianceCard({ compliance, hasData, loading }: { compliance: number; 
           <p className="tc-kpi-value" style={{ fontWeight: 500, color, margin: "0 0 8px", lineHeight: 1.2 }}>
             {hasData && compliance > 0 ? `${compliance.toFixed(0)}%` : "—"}
           </p>
-          {/* 3px progress bar */}
           <div style={{ height: 3, backgroundColor: "#1A2640", borderRadius: 2, overflow: "hidden" }}>
             <div style={{
               height: "100%",
@@ -232,21 +296,59 @@ function ComplianceCard({ compliance, hasData, loading }: { compliance: number; 
   );
 }
 
-/* Circular discipline score ring */
+/* Equity chart custom tooltip */
+function CustomEquityTooltip({ active, payload, label, formatPnl }: {
+  active?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: Array<any>;
+  label?: string;
+  formatPnl: (v: number) => string;
+}) {
+  if (!active || !payload?.length || !label) return null;
+  const real = payload.find((p: { dataKey: string }) => p.dataKey === "real");
+  if (!real) return null;
+  return (
+    <div style={{
+      backgroundColor: "#0A1220",
+      border: "1px solid #E2B96F",
+      borderRadius: 7,
+      padding: "6px 10px",
+      fontSize: 10,
+      lineHeight: 1.5,
+      pointerEvents: "none",
+    }}>
+      <p style={{ color: "#6B8AAA", margin: "0 0 2px" }}>{label}</p>
+      <p style={{ color: "#E2B96F", fontWeight: 500, margin: 0 }}>
+        {(real.value as number) >= 0 ? "+" : ""}{formatPnl(real.value as number)}
+      </p>
+    </div>
+  );
+}
+
+/* Circular discipline score ring — animates from empty on mount */
 function ScoreRing({ score, color }: { score: number; color: string }) {
   const r = 36, cx = 44, cy = 44;
-  const circ   = 2 * Math.PI * r;
-  const offset = circ - (score / 100) * circ;
+  const circ = 2 * Math.PI * r;
+  const targetOffset = circ - (score / 100) * circ;
+  const [animated, setAnimated] = useState(false);
+
+  useEffect(() => {
+    setAnimated(false);
+    const t = setTimeout(() => setAnimated(true), 80);
+    return () => clearTimeout(t);
+  }, [score]);
+
   return (
     <svg width={88} height={88} viewBox="0 0 88 88">
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1A2640" strokeWidth={6} />
       <circle
         cx={cx} cy={cy} r={r} fill="none"
         stroke={color} strokeWidth={6}
-        strokeDasharray={circ} strokeDashoffset={offset}
+        strokeDasharray={circ}
+        strokeDashoffset={animated ? targetOffset : circ}
         strokeLinecap="round"
         transform={`rotate(-90 ${cx} ${cy})`}
-        style={{ transition: "stroke-dashoffset 0.9s ease" }}
+        style={{ transition: animated ? "stroke-dashoffset 1.4s cubic-bezier(.16,1,.3,1)" : "none" }}
       />
       <text x={cx} y={cy - 4} textAnchor="middle" fontSize={22} fontWeight={500}
         fill={color} fontFamily="var(--font-dm-sans), DM Sans, sans-serif">{score}</text>
@@ -313,14 +415,24 @@ function TradeRow({ trade }: { trade: RecentTrade }) {
 /* ─────────────────────────────── Main ── */
 
 export default function DashboardClient({ firstName }: { firstName: string }) {
-  const qc                          = useQueryClient();
-  const { formatPnl, currency }     = useCurrency();
-  const now                         = new Date();
+  const qc                      = useQueryClient();
+  const { formatPnl, currency } = useCurrency();
+  const now                     = new Date();
 
-  const greet     = greeting(now.getUTCHours());
-  const week      = weekNumber(now);
-  const london    = londonStatus();
+  const greet      = greeting(now.getUTCHours());
+  const week       = weekNumber(now);
+  const london     = londonStatus();
   const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  /* ── Discipline ring pulse on click ── */
+  const ringWrapperRef = useRef<HTMLDivElement>(null);
+  function handleDisciplineClick() {
+    const el = ringWrapperRef.current;
+    if (!el) return;
+    el.classList.remove("tc-score-pulse");
+    el.getBoundingClientRect(); // force reflow so animation restarts
+    el.classList.add("tc-score-pulse");
+  }
 
   /* ── Data ── */
   const { data, isLoading } = useQuery<DashboardData>({
@@ -335,7 +447,6 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
     const ch = sb
       .channel("dashboard-rt")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "trades" }, () => {
-        // Delay re-fetch slightly so refresh-stats has time to run server-side
         setTimeout(() => {
           qc.invalidateQueries({ queryKey: ["dashboard"] });
           qc.invalidateQueries({ queryKey: ["trades"] });
@@ -363,31 +474,27 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
   }, [data?.newly_achieved]);
 
   /* ── Derived scalars ── */
-  const stats       = data?.stats ?? null;
-  const totalPnl    = parseFloat(stats?.totalPnl    ?? "0");
-  const winRate     = parseFloat(stats?.winRate      ?? "0");
-  const compliance  = parseFloat(stats?.ruleCompliancePct ?? "0");
-  const phantomPnl  = data?.phantomPnl   ?? 0;
+  const stats        = data?.stats ?? null;
+  const totalPnl     = parseFloat(stats?.totalPnl    ?? "0");
+  const winRate      = parseFloat(stats?.winRate      ?? "0");
+  const compliance   = parseFloat(stats?.ruleCompliancePct ?? "0");
+  const phantomPnl   = data?.phantomPnl    ?? 0;
   const behavioralGap = data?.behavioralGap ?? 0;
-  const monthlyPnl  = data?.monthlyPnl   ?? 0;
-  const totalTrades = data?.totalTrades  ?? 0;
-  const closedTrades = stats?.closedTrades ?? 0;
+  const monthlyPnl   = data?.monthlyPnl    ?? 0;
+  const totalTrades  = data?.totalTrades   ?? 0;
+  const closedTrades = stats?.closedTrades  ?? 0;
 
-  /* Net P&L: jade if positive, rose if negative */
   const pnlColor        = totalPnl >= 0 ? "#50E3B8" : "#F07C7C";
-  /* Monthly sub-text */
   const monthlySub      = stats
     ? `This month: ${monthlyPnl >= 0 ? "+" : ""}${formatPnl(monthlyPnl)}`
     : "no trades yet";
-  /* Monthly badge for equity chart */
   const monthlyBadgeAmt = `${monthlyPnl >= 0 ? "+" : ""}${formatPnl(monthlyPnl)}`;
   const monthlyBadgePos = monthlyPnl >= 0;
 
-  /* Discipline score — read from stats_cache (computed server-side) */
   const discipline      = stats?.disciplineScore != null ? Math.round(parseFloat(stats.disciplineScore)) : 0;
   const disciplineColor = discipline >= 80 ? "#50E3B8" : discipline >= 50 ? "#E2B96F" : "#F07C7C";
 
-  /* ── Session edge: gold = best, rose = worst, ice = middle ── */
+  /* ── Session edge ── */
   const SESSION_KEYS = ["london", "newyork", "asian", "african"];
   const sessionMap   = useMemo(() => {
     const m: Record<string, SessionEdge> = {};
@@ -413,11 +520,14 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
     return "#8BA8C4";
   }
 
-  /* ── Equity chart data: inject zero start point ── */
+  /* ── Equity chart data ── */
   const equityCurve = data?.equityCurve ?? [];
   const chartData   = equityCurve.length > 0
     ? [{ date: "", real: 0, phantom: 0 }, ...equityCurve]
     : [];
+
+  /* suppress unused-var — currency is destructured for future consumers */
+  void currency;
 
   /* ── Render ── */
   return (
@@ -427,6 +537,15 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
           0%   { background-position:  200% 0; }
           100% { background-position: -200% 0; }
         }
+        @keyframes tc-ripple {
+          to { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+        }
+        @keyframes tc-score-pulse {
+          0%   { transform: scale(1); }
+          40%  { transform: scale(1.06); }
+          100% { transform: scale(1); }
+        }
+        .tc-score-pulse { animation: tc-score-pulse 400ms ease-out; }
         .tc-kpi-value { font-size: 21px; }
         @media (max-width: 430px) {
           .tc-kpi-value { font-size: 15px !important; }
@@ -451,7 +570,6 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
         {/* ── KPI row ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
 
-          {/* Card 1 — Net P&L */}
           <KpiCard
             label="Net P&L"
             accent="#50E3B8"
@@ -459,27 +577,27 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
             loading={isLoading}
             value={stats ? formatPnl(totalPnl) : "—"}
             sub={monthlySub}
+            href="/journal"
           />
 
-          {/* Card 2 — Phantom P&L */}
           <KpiCard
             label="Phantom P&L"
             accent="#E2B96F"
             loading={isLoading}
             value={stats ? formatPnl(phantomPnl) : "—"}
             sub={stats ? `Behavioral gap: ${formatPnl(behavioralGap)}` : "—"}
+            href="/journal"
           />
 
-          {/* Card 3 — Win rate */}
           <KpiCard
             label="Win rate"
             accent="#8BA8C4"
             loading={isLoading}
             value={stats ? `${winRate.toFixed(1)}%` : "—"}
             sub={stats ? `${closedTrades} of ${totalTrades} trades` : "no trades yet"}
+            href="/analytics"
           />
 
-          {/* Card 4 — Rule compliance */}
           <ComplianceCard
             compliance={compliance}
             hasData={stats?.ruleCompliancePct != null}
@@ -489,7 +607,6 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
 
         {/* ── Equity curve ── */}
         <Card style={{ marginBottom: 12 }}>
-          {/* Card header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060" }}>
               Equity curve — {monthLabel}
@@ -506,7 +623,6 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
             )}
           </div>
 
-          {/* Chart */}
           {isLoading ? (
             <Skeleton h={70} r={4} />
           ) : equityCurve.length === 0 ? (
@@ -525,25 +641,14 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
                   </linearGradient>
                 </defs>
                 <ReferenceLine y={0} stroke="#1A2640" strokeDasharray="3 3" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#111C2E", border: "1px solid #1A2640",
-                    borderRadius: 6, fontSize: 11,
-                  }}
-                  labelStyle={{ color: "#4B6080" }}
-                  formatter={(v: number, name: string) => [
-                    formatPnl(v),
-                    name === "real" ? "Actual P&L" : "Phantom P&L",
-                  ]}
-                />
-                {/* Real equity area */}
+                <Tooltip content={<CustomEquityTooltip formatPnl={formatPnl} />} />
                 <Area
                   type="monotone" dataKey="real"
                   stroke="#E2B96F" strokeWidth={1.5}
                   fill="url(#tcGoldGrad)"
-                  dot={false} activeDot={{ r: 3, fill: "#E2B96F" }}
+                  dot={false}
+                  activeDot={{ r: 4, fill: "#E2B96F", stroke: "#0A0F1A", strokeWidth: 2 }}
                 />
-                {/* Phantom ghost line */}
                 <Line
                   type="monotone" dataKey="phantom"
                   stroke="#E2B96F" strokeWidth={0.8}
@@ -554,7 +659,6 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
             </ResponsiveContainer>
           )}
 
-          {/* Legend */}
           {!isLoading && equityCurve.length > 0 && (
             <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -562,11 +666,7 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
                 <span style={{ fontSize: 9, color: "#4B6080" }}>Actual P&L</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <div style={{
-                  width: 16, height: 0,
-                  borderTop: "1.5px dashed #E2B96F",
-                  opacity: 0.5,
-                }} />
+                <div style={{ width: 16, height: 0, borderTop: "1.5px dashed #E2B96F", opacity: 0.5 }} />
                 <span style={{ fontSize: 9, color: "#4B6080" }}>Phantom P&L (rule-perfect)</span>
               </div>
             </div>
@@ -590,9 +690,7 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
             </div>
           ) : (data?.recentTrades ?? []).length === 0 ? (
             <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <p style={{ fontSize: 12, color: "#4B6080", margin: "0 0 12px" }}>
-                No trades logged yet.
-              </p>
+              <p style={{ fontSize: 12, color: "#4B6080", margin: "0 0 12px" }}>No trades logged yet.</p>
               <Link href="/journal/new" style={{
                 display: "inline-flex", alignItems: "center",
                 height: 34, padding: "0 14px", borderRadius: 8,
@@ -610,7 +708,6 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
         {/* ── Session edge + Discipline score ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
 
-          {/* Session edge */}
           <Card>
             <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060", margin: "0 0 12px" }}>
               Session edge
@@ -629,23 +726,15 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
                         <span style={{ fontSize: 9, color: "#2E4060", width: 58, flexShrink: 0 }}>
                           {sessionLabel(s.session)}
                         </span>
-                        <div style={{
-                          flex: 1, height: 3,
-                          backgroundColor: "#1A2640", borderRadius: 2, overflow: "hidden",
-                        }}>
+                        <div style={{ flex: 1, height: 3, backgroundColor: "#1A2640", borderRadius: 2, overflow: "hidden" }}>
                           <div style={{
                             height: "100%",
                             width: s.total > 0 ? `${s.winRate}%` : "0%",
-                            backgroundColor: bc,
-                            borderRadius: 2,
+                            backgroundColor: bc, borderRadius: 2,
                             transition: "width 0.9s ease",
                           }} />
                         </div>
-                        <span style={{
-                          fontSize: 9,
-                          color: s.total > 0 ? bc : "#2E4060",
-                          width: 26, textAlign: "right",
-                        }}>
+                        <span style={{ fontSize: 9, color: s.total > 0 ? bc : "#2E4060", width: 26, textAlign: "right" }}>
                           {s.total > 0 ? `${s.winRate}%` : "—"}
                         </span>
                       </div>
@@ -655,9 +744,7 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
                 {bestKey && (
                   <p style={{ fontSize: 10, color: "#6B8AAA", margin: "12px 0 0" }}>
                     Your edge is the{" "}
-                    <span style={{ color: "#E2B96F", fontWeight: 500 }}>
-                      {sessionLabel(bestKey)}
-                    </span>{" "}
+                    <span style={{ color: "#E2B96F", fontWeight: 500 }}>{sessionLabel(bestKey)}</span>{" "}
                     session
                   </p>
                 )}
@@ -665,11 +752,14 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
             )}
           </Card>
 
-          {/* Discipline score */}
-          <Card style={{
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-          }}>
+          <Card
+            style={{
+              display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+            }}
+            onClick={handleDisciplineClick}
+          >
             <p style={{
               fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em",
               color: "#2E4060", margin: "0 0 10px", alignSelf: "flex-start",
@@ -683,7 +773,9 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
               </div>
             ) : (
               <>
-                <ScoreRing score={discipline} color={disciplineColor} />
+                <div ref={ringWrapperRef}>
+                  <ScoreRing score={discipline} color={disciplineColor} />
+                </div>
                 <p style={{ fontSize: 9, color: "#2E4060", margin: "8px 0 0", textAlign: "center" }}>
                   {stats?.currentStreak
                     ? `${stats.currentStreak}-day compliance streak`
