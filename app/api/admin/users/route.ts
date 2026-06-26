@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
       ? and(activeOnly, or(ilike(users.email, `%${search}%`), ilike(users.displayName, `%${search}%`)))
       : activeOnly;
 
+    console.time("[admin/users] GET list");
     const [rows, [{ totalCount }]] = await Promise.all([
       db
         .select({
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
       db.select({ totalCount: count() }).from(users).where(where),
     ]);
 
+    console.timeEnd("[admin/users] GET list");
     return NextResponse.json({
       users: rows,
       page,

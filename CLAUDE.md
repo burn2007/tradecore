@@ -7,7 +7,7 @@ A trading journal SaaS for African forex traders (Nigeria, Ghana, Kenya, South A
 Next.js 15 App Router, TypeScript (strict), Tailwind CSS v3 (Dusk CSS variables), Supabase (Auth), Neon serverless Postgres, Drizzle ORM, Zod, TanStack Query v5, Recharts, @ducanh2912/next-pwa (Workbox 6), Cloudflare R2 (Screenshots), Upstash Redis (Jobs), Resend (Email).
 
 ## Status
-Free tier complete (Prompts 1-13, 15-17). Prompt 14 deferred. Admin panel, soft-delete/reserve, and destination chooser added beyond original plan, also complete.
+Free tier complete (Prompts 1-13, 15-17). Prompt 14 deferred. Admin panel, soft-delete/reserve, and destination chooser added beyond original plan, also complete. Auth flows complete (Prompt 22): forgot password, reset password, email verification + resend, proxy email_confirmed_at gate.
 
 ## Currently active known issues
 - **NEXT_PUBLIC_R2_PUBLIC_URL** not in `.env` — screenshot uploads succeed (R2 PUT works) but the returned URL is the raw R2 key string unless this variable is set to the R2 public bucket URL. `POST /api/uploads/screenshot` now returns 503 instead of silently uploading when this is still the placeholder.

@@ -178,7 +178,9 @@ export async function computeUserStats(
   userId: string,
   dbClient: DrizzleClient = defaultDb,
 ): Promise<StatsResult> {
-  /* ── 1. Trade counts ─────────────────────────────────────────────────── */
+  console.time(`[computeUserStats] user=${userId.slice(0, 8)}`);
+
+  /* ── 1. Trade counts — needed for early-return if zero trades ─────────── */
   const [countsRow] = await dbClient
     .select({
       total:  sql<number>`count(*)::int`,
@@ -193,126 +195,168 @@ export async function computeUserStats(
   const openTrades   = Number(countsRow?.open    ?? 0);
 
   if (totalTrades === 0) {
+    console.timeEnd(`[computeUserStats] user=${userId.slice(0, 8)}`);
     return zeroStats();
   }
 
-  /* ── 2. Win rate + total P&L ─────────────────────────────────────────── */
-  const [pnlRow] = await dbClient
-    .select({
-      totalPnl: sql<string>`sum(${trades.pnlUsd}::numeric)`,
-      wins:     sql<number>`count(case when ${trades.pnlUsd}::numeric > 0 then 1 end)::int`,
-    })
-    .from(trades)
-    .where(and(eq(trades.userId, userId), isNotNull(trades.pnlUsd)));
+  /* ── 2–8. All remaining queries run in parallel ──────────────────────── */
+  const [
+    pnlRow,
+    phantomRow,
+    rrRow,
+    complianceRow,
+    setupRows,
+    rawSessionRows,
+    recentTrades,
+  ] = await Promise.all([
 
-  const totalPnl     = pnlRow?.totalPnl != null ? parseFloat(pnlRow.totalPnl) : null;
-  const winCount     = Number(pnlRow?.wins ?? 0);
-  const winRate      = closedTrades > 0 ? round((winCount / closedTrades) * 100, 2) : null;
+    /* 2. Win rate + total P&L */
+    dbClient
+      .select({
+        totalPnl: sql<string>`sum(${trades.pnlUsd}::numeric)`,
+        wins:     sql<number>`count(case when ${trades.pnlUsd}::numeric > 0 then 1 end)::int`,
+      })
+      .from(trades)
+      .where(and(eq(trades.userId, userId), isNotNull(trades.pnlUsd)))
+      .then((rows) => rows[0]),
 
-  /* ── 3. Phantom P&L (dashboard definition) ───────────────────────────── */
-  // phantomPnl = totalPnl + absolute losses recovered from rule-violating trades.
-  // "What you would have made if rule-breaking losses hadn't happened."
-  // behavioralGap = the portion of P&L lost purely due to rule violations.
-  // NOTE: must use EXISTS rather than an inner join on rule_violations — a trade
-  // can have multiple violations (one per rule), and a join would multiply that
-  // trade's loss into the sum once per violation row instead of once per trade.
-  const [phantomRow] = await dbClient
-    .select({
-      lostToViolations: sql<string>`
-        coalesce(sum(
-          case when ${trades.pnlUsd}::numeric < 0
-               then abs(${trades.pnlUsd}::numeric)
-               else 0
-          end
-        ), 0)
-      `,
-    })
-    .from(trades)
-    .where(
-      and(
-        eq(trades.userId, userId),
-        isNotNull(trades.pnlUsd),
-        sql`exists (select 1 from rule_violations rv where rv.trade_id = ${trades.id})`,
-      ),
-    );
+    /* 3. Phantom P&L — uses EXISTS to avoid multiplying losses per violation row */
+    dbClient
+      .select({
+        lostToViolations: sql<string>`
+          coalesce(sum(
+            case when ${trades.pnlUsd}::numeric < 0
+                 then abs(${trades.pnlUsd}::numeric)
+                 else 0
+            end
+          ), 0)
+        `,
+      })
+      .from(trades)
+      .where(
+        and(
+          eq(trades.userId, userId),
+          isNotNull(trades.pnlUsd),
+          sql`exists (select 1 from rule_violations rv where rv.trade_id = ${trades.id})`,
+        ),
+      )
+      .then((rows) => rows[0]),
+
+    /* 4. Average R:R */
+    dbClient
+      .select({
+        avgRr: sql<string>`
+          avg(
+            abs(${trades.pnlUsd}::numeric)
+            /
+            nullif(
+              abs(${trades.entryPrice}::numeric - ${trades.stopLoss}::numeric)
+              * ${trades.sizeLots}::numeric
+              * 100000,
+              0
+            )
+          )
+        `,
+        sampleCount: sql<number>`count(*)::int`,
+      })
+      .from(trades)
+      .where(
+        and(
+          eq(trades.userId, userId),
+          isNotNull(trades.pnlUsd),
+          isNotNull(trades.stopLoss),
+        )
+      )
+      .then((rows) => rows[0]),
+
+    /* 5. Rule compliance % — only closed trades count */
+    dbClient
+      .select({
+        violatingTrades: sql<number>`count(distinct ${ruleViolations.tradeId})::int`,
+      })
+      .from(ruleViolations)
+      .innerJoin(
+        trades,
+        and(
+          eq(trades.id, ruleViolations.tradeId),
+          isNotNull(trades.pnlUsd),
+        ),
+      )
+      .where(eq(ruleViolations.userId, userId))
+      .then((rows) => rows[0]),
+
+    /* 6. Best setup */
+    dbClient
+      .select({
+        setupTag: trades.setupTag,
+        total:    sql<number>`count(*)::int`,
+        wins:     sql<number>`count(case when ${trades.pnlUsd}::numeric > 0 then 1 end)::int`,
+      })
+      .from(trades)
+      .where(
+        and(
+          eq(trades.userId, userId),
+          isNotNull(trades.pnlUsd),
+          isNotNull(trades.setupTag),
+        )
+      )
+      .groupBy(trades.setupTag),
+
+    /* 7. Best / worst session */
+    dbClient
+      .select({
+        session: trades.session,
+        total:   sql<number>`count(*)::int`,
+        wins:    sql<number>`count(case when ${trades.pnlUsd}::numeric > 0 then 1 end)::int`,
+      })
+      .from(trades)
+      .where(
+        and(
+          eq(trades.userId, userId),
+          isNotNull(trades.pnlUsd),
+          isNotNull(trades.session),
+        )
+      )
+      .groupBy(trades.session),
+
+    /* 8. Compliance streak — all closed trades ordered by date */
+    dbClient
+      .select({
+        dateKey:      sql<string>`to_char(${trades.entryAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+        tradeId:      trades.id,
+        hasViolation: sql<boolean>`
+          exists (
+            select 1 from rule_violations rv
+            where rv.trade_id = ${trades.id}
+          )
+        `,
+      })
+      .from(trades)
+      .where(and(eq(trades.userId, userId), isNotNull(trades.pnlUsd)))
+      .orderBy(desc(trades.entryAt)),
+  ]);
+
+  console.timeEnd(`[computeUserStats] user=${userId.slice(0, 8)}`);
+
+  /* ── Derive scalars from parallel results ────────────────────────────── */
+
+  const totalPnl  = pnlRow?.totalPnl != null ? parseFloat(pnlRow.totalPnl) : null;
+  const winCount  = Number(pnlRow?.wins ?? 0);
+  const winRate   = closedTrades > 0 ? round((winCount / closedTrades) * 100, 2) : null;
 
   const lostToViolations = phantomRow?.lostToViolations != null
     ? parseFloat(phantomRow.lostToViolations) : 0;
-  const phantomPnl   = totalPnl != null ? round(totalPnl + lostToViolations, 2) : null;
+  const phantomPnl    = totalPnl != null ? round(totalPnl + lostToViolations, 2) : null;
   const behavioralGap = round(lostToViolations, 2);
 
-  /* ── 4. Average R:R ──────────────────────────────────────────────────── */
-  // risk  = |entry_price - stop_loss| × size_lots × 100000
-  // reward = |pnl_usd|
-  // rr     = reward / risk
-  const [rrRow] = await dbClient
-    .select({
-      avgRr: sql<string>`
-        avg(
-          abs(${trades.pnlUsd}::numeric)
-          /
-          nullif(
-            abs(${trades.entryPrice}::numeric - ${trades.stopLoss}::numeric)
-            * ${trades.sizeLots}::numeric
-            * 100000,
-            0
-          )
-        )
-      `,
-      sampleCount: sql<number>`count(*)::int`,
-    })
-    .from(trades)
-    .where(
-      and(
-        eq(trades.userId, userId),
-        isNotNull(trades.pnlUsd),
-        isNotNull(trades.stopLoss),
-      )
-    );
-
-  // Requires at least 3 trades with stop_loss set, per spec.
   const avgRr = Number(rrRow?.sampleCount ?? 0) >= 3 && rrRow?.avgRr != null
     ? round(parseFloat(rrRow.avgRr), 3)
     : null;
 
-  /* ── 5. Rule compliance % (closed trades only) ───────────────────────── */
-  // Only violations on CLOSED trades (pnlUsd IS NOT NULL) count against compliance.
-  // Open trades with violations are not penalized until they close.
-  const [complianceRow] = await dbClient
-    .select({
-      violatingTrades: sql<number>`count(distinct ${ruleViolations.tradeId})::int`,
-    })
-    .from(ruleViolations)
-    .innerJoin(
-      trades,
-      and(
-        eq(trades.id, ruleViolations.tradeId),
-        isNotNull(trades.pnlUsd),  // only closed trades affect compliance
-      ),
-    )
-    .where(eq(ruleViolations.userId, userId));
-
-  const violatingTrades  = Number(complianceRow?.violatingTrades ?? 0);
+  const violatingTrades   = Number(complianceRow?.violatingTrades ?? 0);
   const ruleCompliancePct = closedTrades > 0
     ? round(((closedTrades - violatingTrades) / closedTrades) * 100, 2)
     : null;
-
-  /* ── 6. Best setup ───────────────────────────────────────────────────── */
-  const setupRows = await dbClient
-    .select({
-      setupTag: trades.setupTag,
-      total:    sql<number>`count(*)::int`,
-      wins:     sql<number>`count(case when ${trades.pnlUsd}::numeric > 0 then 1 end)::int`,
-    })
-    .from(trades)
-    .where(
-      and(
-        eq(trades.userId, userId),
-        isNotNull(trades.pnlUsd),
-        isNotNull(trades.setupTag),
-      )
-    )
-    .groupBy(trades.setupTag);
 
   let bestSetup: string | null = null;
   let bestSetupWr = -1;
@@ -322,25 +366,6 @@ export async function computeUserStats(
       if (wr > bestSetupWr) { bestSetupWr = wr; bestSetup = row.setupTag; }
     }
   }
-
-  /* ── 7. Best / worst session ─────────────────────────────────────────── */
-  // Raw session values must be normalised BEFORE grouping — legacy values like
-  // "tokyo"/"sydney" collapse into "asian", "new_york" into "newyork", etc.
-  const rawSessionRows = await dbClient
-    .select({
-      session: trades.session,
-      total:   sql<number>`count(*)::int`,
-      wins:    sql<number>`count(case when ${trades.pnlUsd}::numeric > 0 then 1 end)::int`,
-    })
-    .from(trades)
-    .where(
-      and(
-        eq(trades.userId, userId),
-        isNotNull(trades.pnlUsd),
-        isNotNull(trades.session),
-      )
-    )
-    .groupBy(trades.session);
 
   const sessionAgg = new Map<string, { total: number; wins: number }>();
   for (const row of rawSessionRows) {
@@ -362,28 +387,11 @@ export async function computeUserStats(
     }
   }
 
-  /* ── 8. Discipline score ─────────────────────────────────────────────── */
+  /* ── Discipline score ────────────────────────────────────────────────── */
   const compPct  = ruleCompliancePct ?? 50;
   const wrPct    = winRate           ?? 50;
   const rawScore = compPct * 0.6 + wrPct * 0.4;
   const disciplineScore = Math.min(100, Math.max(0, Math.round(rawScore)));
-
-  /* ── 9. Compliance streak (calendar days, working backwards) ─────────── */
-  // Fetch all closed trades ordered by date descending to walk the calendar.
-  const recentTrades = await dbClient
-    .select({
-      dateKey:      sql<string>`to_char(${trades.entryAt} at time zone 'UTC', 'YYYY-MM-DD')`,
-      tradeId:      trades.id,
-      hasViolation: sql<boolean>`
-        exists (
-          select 1 from rule_violations rv
-          where rv.trade_id = ${trades.id}
-        )
-      `,
-    })
-    .from(trades)
-    .where(and(eq(trades.userId, userId), isNotNull(trades.pnlUsd)))
-    .orderBy(desc(trades.entryAt));
 
   // Group by calendar day
   const dayMap = new Map<string, { total: number; violations: number }>();

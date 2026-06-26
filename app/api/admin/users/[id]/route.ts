@@ -27,6 +27,8 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
     const { id } = await params;
 
+    console.time(`[admin/users/${id.slice(0, 8)}] GET`);
+
     // Join deletedBy to resolve the deleting admin's email.
     const deletedByAlias = db
       .select({ id: users.id, email: users.email })
@@ -79,6 +81,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
         .limit(10),
     ]);
 
+    console.timeEnd(`[admin/users/${id.slice(0, 8)}] GET`);
     return NextResponse.json({
       user,
       stats: statsRows[0] ?? null,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
@@ -13,8 +14,8 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   const supabase = createClient();
 
@@ -33,7 +34,7 @@ export default function RegisterPage() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -45,9 +46,22 @@ export default function RegisterPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      setSuccess(true);
+      return;
     }
+
+    if (data.session) {
+      // Email confirmation disabled — user is immediately active
+      window.location.href = "/dashboard";
+      return;
+    }
+
+    // Email confirmation required (normal case).
+    // identities empty = email already registered but unconfirmed; Supabase
+    // silently resends the confirmation email in this case.
+    const resent = (data.user?.identities?.length ?? 1) === 0;
+    const params = new URLSearchParams({ email });
+    if (resent) params.set("resent", "true");
+    router.push(`/verify-email?${params.toString()}`);
   }
 
   async function handleGoogle() {
@@ -56,54 +70,6 @@ export default function RegisterPage() {
       provider: "google",
       options: { redirectTo: `${window.location.origin}/api/auth/callback` },
     });
-  }
-
-  if (success) {
-    return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background: "var(--color-bg)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "1.5rem",
-        }}
-      >
-        <div
-          style={{
-            width: "100%",
-            maxWidth: "400px",
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "11px",
-            borderTop: "2px solid var(--color-jade)",
-            padding: "2rem",
-            textAlign: "center",
-          }}
-        >
-          <h2 style={{ color: "var(--color-jade)", fontSize: "1.25rem", fontWeight: 500, marginBottom: "0.75rem" }}>
-            Check your email
-          </h2>
-          <p style={{ color: "var(--color-text-secondary)", fontSize: "0.9375rem", lineHeight: 1.6 }}>
-            We sent a confirmation link to <strong style={{ color: "var(--color-text-primary)" }}>{email}</strong>.
-            Click it to activate your account.
-          </p>
-          <Link
-            href="/login"
-            style={{
-              display: "inline-block",
-              marginTop: "1.5rem",
-              color: "var(--color-gold)",
-              textDecoration: "none",
-              fontSize: "0.9375rem",
-            }}
-          >
-            Back to sign in
-          </Link>
-        </div>
-      </main>
-    );
   }
 
   return (

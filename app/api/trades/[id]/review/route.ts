@@ -43,6 +43,7 @@ export async function PATCH(
 
   const { postMood, postNote, violatedRuleIds } = parsed.data;
 
+  console.time(`[trades/${id.slice(0, 8)}] review PATCH`);
   const ops: Promise<unknown>[] = [];
 
   if (postMood || postNote) {
@@ -69,6 +70,7 @@ export async function PATCH(
   }
 
   await Promise.all(ops);
+  console.timeEnd(`[trades/${id.slice(0, 8)}] review PATCH`);
 
   // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
   void refreshStatsForUser(user.id).catch(() => {/* best-effort */});

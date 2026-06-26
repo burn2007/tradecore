@@ -81,6 +81,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Unconfirmed email — block protected routes and auth pages until confirmed.
+  // Google OAuth users always have email_confirmed_at set; this only fires for
+  // email/password users who haven't clicked their confirmation link yet.
+  if (user && !user.email_confirmed_at && (isProtected || isAuthRoute)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/verify-email";
+    if (user.email) url.searchParams.set("email", user.email);
+    return NextResponse.redirect(url);
+  }
+
   // Authenticated — redirect away from auth pages
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();

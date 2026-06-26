@@ -22,13 +22,17 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 
   const { id } = await params;
 
+  console.time(`[trades/${id.slice(0, 8)}] GET`);
   const [trade] = await db
     .select()
     .from(trades)
     .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
     .limit(1);
 
-  if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!trade) {
+    console.timeEnd(`[trades/${id.slice(0, 8)}] GET`);
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   // Parallel fetch: emotion log, violations with rule titles, screenshots
   const [emotionLog, violations, screenshots] = await Promise.all([
@@ -45,6 +49,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
     db.select().from(tradeScreenshots).where(eq(tradeScreenshots.tradeId, id)),
   ]);
 
+  console.timeEnd(`[trades/${id.slice(0, 8)}] GET`);
   return NextResponse.json({
     trade,
     emotionLog: emotionLog[0] ?? null,
@@ -112,11 +117,13 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
+  console.time(`[trades/${id.slice(0, 8)}] PATCH`);
   const [updated] = await db
     .update(trades)
     .set(updates)
     .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
     .returning();
+  console.timeEnd(`[trades/${id.slice(0, 8)}] PATCH`);
 
   // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
   void refreshStatsForUser(user.id).catch(() => {});
@@ -132,10 +139,12 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
 
   const { id } = await params;
 
+  console.time(`[trades/${id.slice(0, 8)}] DELETE`);
   const [deleted] = await db
     .delete(trades)
     .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
     .returning({ id: trades.id });
+  console.timeEnd(`[trades/${id.slice(0, 8)}] DELETE`);
 
   if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

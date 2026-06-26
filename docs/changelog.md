@@ -2,6 +2,44 @@
 
 ## Prompts Completed
 
+### Prompt 22 — Auth flows: forgot password, reset password, email verification ✅
+
+**Part 1 — Google OAuth (investigation only, no code changed)**
+- Login `handleGoogle` correctly calls `signInWithOAuth` via browser client ✅
+- `app/api/auth/callback/route.ts` already handles both `tokenHash`+`type` (email OTP) and `code` (OAuth/PKCE recovery) flows; upserts Neon row with `role: "user"`, `tier` defaults to `"free"` via schema ✅
+- Register page already has the Google button ✅
+- **Dashboard config required**: Google provider must be enabled in Supabase console → Authentication → Providers → Google (Client ID + Secret from Google Cloud). Cannot verify from code.
+
+**Part 2 — Forgot password flow**
+- **`app/(auth)/login/page.tsx`**: `href="#"` on "Forgot password?" link corrected to `href="/forgot-password"`.
+- **`app/(auth)/forgot-password/page.tsx`** (new): Calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: .../api/auth/callback?next=/reset-password })`. Always shows the same success message regardless of whether the email exists — never reveals registration status. Matches existing Dusk card styling.
+- **`app/(auth)/reset-password/page.tsx`** (new): Two password inputs with show/hide toggles. Submit button disabled until both match. Calls `supabase.auth.updateUser({ password })`. On success, shows confirmation and redirects to `/login` after 2s. On error, shows the specific Supabase error message. The `?next=/reset-password` redirectTo approach routes through the existing callback (which already reads `next` from searchParams) without any callback changes.
+
+**Part 3 — Email verification + resend**
+- **`app/(auth)/register/page.tsx`**: Removed inline "Check your email" success block. On successful `signUp`:
+  - If `data.session` → email confirmation is disabled → redirect to `/dashboard`.
+  - Otherwise → redirect to `/verify-email?email=xxx`.
+  - If `data.user?.identities?.length === 0` (email already registered but unconfirmed; Supabase resends silently) → redirect to `/verify-email?email=xxx&resent=true`.
+- **`app/(auth)/verify-email/page.tsx`** (new): Shows email from URL param. "Already registered" info banner when `resent=true`. "Resend confirmation email" button (secondary style: `#111C2E` bg, `#1A2640` border, `#6B8AAA` text). 30s cooldown with live countdown after each click, button disabled during window. Calls `supabase.auth.resend({ type: "signup", email })`. Success triggers `pushToast({ label: "Confirmation email resent." })`. `ToastStack` mounted locally (no shared auth layout). Wrapped in `<Suspense>` for `useSearchParams` compatibility with Next.js App Router static generation.
+- **`proxy.ts`**: Added `email_confirmed_at` gate between the unauthenticated redirect and the auth-route redirect. If `user && !user.email_confirmed_at && (isProtected || isAuthRoute)` → redirect to `/verify-email?email=xxx`. Google OAuth users always have `email_confirmed_at` set (Supabase auto-confirms OAuth emails) so this only fires for email/password users who haven't clicked their confirmation link.
+- Callback unchanged — email confirmation links already handled by the `tokenHash`+`type` branch; the PKCE recovery flow is handled by the `code` branch. Both paths land on `next` param for routing.
+
+**Supabase dashboard config required:**
+1. Authentication → Providers → Google: enter OAuth Client ID + Secret.
+2. Authentication → Email → "Confirm email" toggle: must be ON for the verify-email flow to apply. If OFF, `signUp` returns a live session and register redirects straight to `/dashboard`.
+3. Authentication → URL Configuration: ensure `https://your-domain.com/api/auth/callback` is in the Redirect URLs allowlist.
+
+- `tsc --noEmit` → zero errors ✅
+- `npm run build` → passes, 40 routes (3 new: `/forgot-password`, `/reset-password`, `/verify-email`) ✅
+
+---
+
+### Hotfix — `proxy.ts` TypeScript strict-mode annotation ✅
+- **`proxy.ts`**: Added `type CookieOptions` to the `@supabase/ssr` import and annotated `setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[])` — identical fix to the one previously applied to `lib/supabase/server.ts`. The error (`Parameter 'cookiesToSet' implicitly has an 'any' type`) only surfaces during a real production build (`next build`), not in local dev mode.
+- `tsc --noEmit` → zero errors ✅; `npm run build` → passes ✅
+
+---
+
 ### Prompt 21 — Dashboard interactive polish ✅
 - **`components/dashboard/DashboardClient.tsx`** (only file modified):
   - **KPI card hover**: `translateY(-3px)`, border `#1A2640 → #2A3A54`, `box-shadow 0 8px 20px -8px rgba(0,0,0,.5)`, accent bar 2px → 3px — all 180ms ease. `cursor: pointer` on all four cards.

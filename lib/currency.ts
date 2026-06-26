@@ -85,7 +85,9 @@ export async function fetchRates(): Promise<Record<string, number>> {
   }
 
   try {
+    console.time("[currency] fetchRates network");
     const res = await fetch("https://api.frankfurter.app/latest?from=USD");
+    console.timeEnd("[currency] fetchRates network");
     if (!res.ok) throw new Error(`Frankfurter ${res.status}`);
     const json = (await res.json()) as { rates: Record<string, number> };
     const rates: Record<string, number> = { USD: 1, ...json.rates };

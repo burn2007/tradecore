@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
   const where = and(...conditions);
 
   // Fetch rows + total count in parallel
+  console.time(`[trades] GET list user=${user.id.slice(0, 8)}`);
   const [rows, [{ total }]] = await Promise.all([
     db
       .select({
@@ -97,6 +98,7 @@ export async function GET(request: NextRequest) {
       .where(where),
   ]);
 
+  console.timeEnd(`[trades] GET list user=${user.id.slice(0, 8)}`);
   return NextResponse.json({ data: rows, total: Number(total), limit, offset });
 }
 
@@ -118,6 +120,7 @@ export async function POST(request: NextRequest) {
   const entryDate = new Date(d.entryAt);
   const session = detectSession(entryDate);
 
+  console.time(`[trades] POST insert user=${user.id.slice(0, 8)}`);
   const [trade] = await db.insert(trades).values({
     userId:       user.id,
     symbol:       d.symbol,
@@ -161,6 +164,7 @@ export async function POST(request: NextRequest) {
   }
 
   await Promise.all(insertions);
+  console.timeEnd(`[trades] POST insert user=${user.id.slice(0, 8)}`);
 
   // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
   void refreshStatsForUser(user.id).catch(() => {});

@@ -53,6 +53,8 @@ export async function refreshStatsForUser(
   userId:   string,
   dbClient: DrizzleClient = defaultDb,
 ): Promise<RefreshResult> {
+  console.time(`[refresh-stats] total user=${userId.slice(0, 8)}`);
+
   /* ── 1. Compute fresh stats ── */
   const stats = await computeUserStats(userId, dbClient);
 
@@ -140,5 +142,6 @@ export async function refreshStatsForUser(
     .map((key) => MILESTONES.find((m) => m.key === key))
     .filter(Boolean) as MilestoneDef[];
 
+  console.timeEnd(`[refresh-stats] total user=${userId.slice(0, 8)}`);
   return { stats, newly_achieved };
 }

@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
+    console.time("[admin/stats] all-queries");
     const [
       [{ totalUsers }],
       tierRows,
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
       db.select({ reserveCount: sql<number>`count(*)::int` }).from(users).where(isNotNull(users.deletedAt)),
     ]);
 
+    console.timeEnd("[admin/stats] all-queries");
     const usersByTier: Record<string, number> = { free: 0, pro: 0, premium: 0 };
     for (const row of tierRows) {
       if (row.tier in usersByTier) usersByTier[row.tier] = Number(row.tierCount);

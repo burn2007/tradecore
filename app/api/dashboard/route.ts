@@ -14,50 +14,32 @@ export async function GET(_req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // ── 1. Stats cache (must resolve first — other queries depend on its absence) ──
-  const [cachedStats] = await db
-    .select()
-    .from(statsCache)
-    .where(eq(statsCache.userId, user.id))
-    .limit(1);
-
-  // Single source of truth: stats_cache, populated by refreshStatsForUser()
-  // after every trade mutation. No live recomputation here — if the cache
-  // hasn't been populated yet (brand new account, zero trades), every field
-  // below falls back to its default (null/0) via the `??` chains downstream.
-  const effectiveStats = cachedStats
-    ? {
-        winRate:           cachedStats.winRate,
-        totalPnl:          cachedStats.totalPnl,
-        phantomPnl:        cachedStats.phantomPnl,
-        behavioralGap:     cachedStats.behavioralGap,
-        totalTrades:       cachedStats.totalTrades,
-        closedTrades:      cachedStats.closedTrades,
-        ruleCompliancePct: cachedStats.ruleCompliancePct,
-        bestSession:       cachedStats.bestSession,
-        currentStreak:     cachedStats.currentStreak,
-        disciplineScore:   cachedStats.disciplineScore,
-      }
-    : null;
-
-  // ── 2. Shared date boundaries ────────────────────────────────────────────
+  // ── Shared date boundaries ────────────────────────────────────────────────
   const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setUTCDate(ninetyDaysAgo.getUTCDate() - 90); // UTC, not local
+  ninetyDaysAgo.setUTCDate(ninetyDaysAgo.getUTCDate() - 90);
 
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
 
-  // ── 3. All remaining queries run in parallel ─────────────────────────────
   const sixtySecondsAgo = new Date(Date.now() - 60_000);
 
+  // ── All 6 queries run in parallel (stats cache is independent of the others) ──
+  console.time(`[dashboard] all-queries user=${user.id.slice(0, 8)}`);
   const [
+    statsResult,
     equityTrades,
     monthlyRow,
     sessionRows,
     recentTrades,
     newMilestones,
   ] = await Promise.all([
+    // 0. Stats cache
+    db
+      .select()
+      .from(statsCache)
+      .where(eq(statsCache.userId, user.id))
+      .limit(1),
 
     // 3a. Equity curve — LEFT JOIN replaces correlated EXISTS (no N+1)
     db
@@ -143,7 +125,26 @@ export async function GET(_req: NextRequest) {
       .orderBy(desc(userMilestones.achievedAt)),
   ]);
 
-  // ── 4. Build equity curve ────────────────────────────────────────────────
+  console.timeEnd(`[dashboard] all-queries user=${user.id.slice(0, 8)}`);
+
+  // ── Extract stats cache ───────────────────────────────────────────────────
+  const [cachedStats] = statsResult;
+  const effectiveStats = cachedStats
+    ? {
+        winRate:           cachedStats.winRate,
+        totalPnl:          cachedStats.totalPnl,
+        phantomPnl:        cachedStats.phantomPnl,
+        behavioralGap:     cachedStats.behavioralGap,
+        totalTrades:       cachedStats.totalTrades,
+        closedTrades:      cachedStats.closedTrades,
+        ruleCompliancePct: cachedStats.ruleCompliancePct,
+        bestSession:       cachedStats.bestSession,
+        currentStreak:     cachedStats.currentStreak,
+        disciplineScore:   cachedStats.disciplineScore,
+      }
+    : null;
+
+  // ── Build equity curve ────────────────────────────────────────────────────
   let runReal = 0, runPhantom = 0;
   const equityCurve = equityTrades.map((t) => {
     const pnl = parseFloat(t.pnlUsd ?? "0");
@@ -156,13 +157,13 @@ export async function GET(_req: NextRequest) {
     };
   });
 
-  // ── 5. Scalar derivations (phantom P&L now comes from stats_cache) ───────
+  // ── Scalar derivations ────────────────────────────────────────────────────
   const totalPnl      = parseFloat(effectiveStats?.totalPnl      ?? "0");
   const phantomPnl    = parseFloat(effectiveStats?.phantomPnl    ?? String(totalPnl));
   const behavioralGap = parseFloat(effectiveStats?.behavioralGap ?? "0");
   const monthlyPnl    = parseFloat(monthlyRow?.[0]?.monthlyPnl   ?? "0");
 
-  // ── 6. Session edge — merge legacy keys (tokyo→asian, etc.) ─────────────
+  // ── Session edge — merge legacy keys (tokyo→asian, etc.) ─────────────────
   const sessionAgg: Record<string, { total: number; wins: number }> = {};
   for (const row of sessionRows) {
     const key = normaliseSession(row.session);
