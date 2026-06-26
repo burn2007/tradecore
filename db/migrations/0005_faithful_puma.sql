@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "last_chosen_destination" varchar(10);
