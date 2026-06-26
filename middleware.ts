@@ -12,7 +12,7 @@ type CookieToSet = {
   options?: Partial<ResponseCookie>;
 };
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -34,33 +34,21 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  // Refresh session — MUST call getUser() not getSession()
+  // Refresh session - MUST call getUser() not getSession()
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
 
-  // ── Admin panel path masking ────────────────────────────────────────────
-  // Chose middleware over a next.config.ts rewrite: next.config.ts
-  // rewrites are resolved into the build's routes-manifest at BUILD time,
-  // so rotating ADMIN_PANEL_PATH later would need a rebuild/redeploy for
-  // the new value to take effect. Middleware reads process.env fresh on
-  // every request at runtime, so rotating the secret path only needs an
-  // env var change (+ process restart) — no redeploy, no code change.
-  //
-  // The literal real folder name always 404s, unconditionally — this check
-  // has nothing to do with auth, it's purely about not confirming the
-  // route's existence to anyone probing for it.
+  // Admin panel path masking.
+  // This runs at request time so ADMIN_PANEL_PATH can rotate without a rebuild.
   const ADMIN_REAL_FOLDER = "/admin-panel";
 
   if (pathname === ADMIN_REAL_FOLDER || pathname.startsWith(`${ADMIN_REAL_FOLDER}/`)) {
     return NextResponse.rewrite(new URL(`/__tc_admin_404__${pathname}`, request.url));
   }
 
-  // If ADMIN_PANEL_PATH is unset (or still the .env.example placeholder),
-  // fail closed: the admin panel is unreachable by any URL rather than
-  // falling back to a guessable default.
   const adminSecretPath = process.env.ADMIN_PANEL_PATH;
   const isAdminPathConfigured =
     !!adminSecretPath && adminSecretPath !== "replace-with-a-secret-path-only-you-know";
@@ -81,27 +69,18 @@ export async function proxy(request: NextRequest) {
   const isProtected = PROTECTED.some((p) => pathname.startsWith(p));
   const isAuthRoute = AUTH_ROUTES.some((p) => pathname.startsWith(p));
 
-  // Unauthenticated — block protected routes
   if (!user && isProtected) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  // Authenticated — redirect away from auth pages
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
-  // ── Soft-delete gate — most important check ──────────────────────────────
-  // A soft-deleted user's Supabase session is still technically valid, so we
-  // must explicitly check deleted_at on every protected request and block them.
-  // We do this AFTER the unauthenticated redirect so we only hit the DB when
-  // there is actually a session. We check on ALL protected routes (not just
-  // the onboarding gate) so there is no path through the trader app for a
-  // soft-deleted account.
   if (user && isProtected) {
     try {
       const sql = neon(process.env.DATABASE_URL!);
@@ -110,27 +89,20 @@ export async function proxy(request: NextRequest) {
       `;
       const row = rows[0] as { deleted_at: Date | null } | undefined;
       if (row?.deleted_at != null) {
-        // Sign them out server-side by clearing the Supabase session, then
-        // redirect to the deactivated page.
         await supabase.auth.signOut();
         const url = request.nextUrl.clone();
         url.pathname = "/deactivated";
         const redirect = NextResponse.redirect(url);
-        // Copy any updated cookies from supabaseResponse (session clear) to
-        // the redirect response so the sign-out takes effect.
         supabaseResponse.cookies.getAll().forEach((c) => {
           redirect.cookies.set(c.name, c.value, { path: "/" });
         });
         return redirect;
       }
     } catch (err) {
-      // If the DB check fails, fail open (don't lock out users due to a
-      // transient DB error) but log loudly so we can investigate.
-      console.error("[proxy] soft-delete DB check failed:", err);
+      console.error("[middleware] soft-delete DB check failed:", err);
     }
   }
 
-  // Authenticated — enforce onboarding gate
   if (user && isProtected && pathname !== "/onboarding") {
     const onboardingDone = user.user_metadata?.onboarding_complete === true;
     if (!onboardingDone) {
