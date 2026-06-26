@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCurrency } from "@/hooks/useCurrency";
 
 /* ── Types ── */
 interface Trade {
@@ -339,6 +340,7 @@ export default function TradeDetail({ id }: { id: string }) {
     </div>
   );
 
+  const { formatPnl } = useCurrency();
   const { trade, emotionLog, violations, screenshots } = data;
   const pnl = trade.pnlUsd != null ? parseFloat(trade.pnlUsd) : null;
   const pnlColor = pnl === null ? "#6B8AAA" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
@@ -390,7 +392,7 @@ export default function TradeDetail({ id }: { id: string }) {
 
         {/* P&L */}
         <p style={{ fontSize: 24, fontWeight: 500, color: pnlColor, margin: "0 0 16px" }}>
-          {pnl === null ? "Open trade" : `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`}
+          {pnl === null ? "Open trade" : pnl >= 0 ? `+${formatPnl(pnl)}` : formatPnl(pnl)}
         </p>
 
         {/* 3-col stats grid */}
@@ -399,8 +401,8 @@ export default function TradeDetail({ id }: { id: string }) {
             { label: "Entry price",  value: fmtPrice(trade.entryPrice) },
             { label: "Exit price",   value: fmtPrice(trade.exitPrice) },
             { label: "Size (lots)",  value: fmtPrice(trade.sizeLots) },
-            { label: "Commission",   value: trade.commission ? `$${parseFloat(trade.commission).toFixed(2)}` : "—" },
-            { label: "Swap",         value: trade.swap ? `$${parseFloat(trade.swap).toFixed(2)}` : "—" },
+            { label: "Commission",   value: trade.commission ? formatPnl(parseFloat(trade.commission)) : "—" },
+            { label: "Swap",         value: trade.swap ? formatPnl(parseFloat(trade.swap)) : "—" },
             { label: "Duration",     value: fmtDuration(trade.entryAt, trade.exitAt) },
           ].map(({ label, value }) => (
             <div key={label}>

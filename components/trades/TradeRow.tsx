@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useCurrency } from "@/hooks/useCurrency";
 
 export interface TradeRowData {
   id: string;
@@ -70,8 +71,9 @@ const PILL: React.CSSProperties = {
 
 /** The one trade row component in the app — used by the journal list and (read-only) the admin panel. */
 export default function TradeRow({ trade, readOnly = false }: Props) {
-  const router = useRouter();
-  const pnl         = trade.pnlUsd != null ? parseFloat(trade.pnlUsd) : null;
+  const router          = useRouter();
+  const { formatPnl }   = useCurrency();
+  const pnl             = trade.pnlUsd != null ? parseFloat(trade.pnlUsd) : null;
   const stripeColor = pnl === null ? "#E2B96F" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
   const pnlColor    = pnl === null ? "#6B8AAA" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
   const duration    = fmtDuration(trade.entryAt, trade.exitAt);
@@ -130,7 +132,7 @@ export default function TradeRow({ trade, readOnly = false }: Props) {
         {/* Right: P&L + compliance */}
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <p style={{ fontSize: 12, fontWeight: 500, color: pnlColor, margin: "0 0 4px" }}>
-            {pnl === null ? "—" : `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}`}
+            {pnl === null ? "—" : pnl >= 0 ? `+${formatPnl(pnl)}` : formatPnl(pnl)}
           </p>
           {trade.violationCount != null && trade.violationCount > 0 ? (
             <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>

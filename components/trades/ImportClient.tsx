@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { parseMT5CSV, type ParsedTrade, type ParseResult } from "@/lib/csv-parser";
 import { useNavLock } from "@/components/layout/NavLockContext";
+import { useCurrency } from "@/hooks/useCurrency";
 
 /* ═══════════════════════════════════════════════════════════════
    Types & constants
@@ -42,12 +43,6 @@ function fmtDate(d: Date | null): string {
   });
 }
 
-function fmtPnl(val: string | null): string {
-  if (!val) return "—";
-  const n = parseFloat(val);
-  if (isNaN(n)) return "—";
-  return `${n >= 0 ? "+" : ""}$${Math.abs(n).toFixed(2)}`;
-}
 
 /* ═══════════════════════════════════════════════════════════════
    Step indicator
@@ -113,7 +108,8 @@ function StepIndicator({ current }: { current: Step }) {
 ═══════════════════════════════════════════════════════════════ */
 
 export default function ImportClient() {
-  const { setLocked } = useNavLock();
+  const { setLocked }   = useNavLock();
+  const { formatPnl }   = useCurrency();
   const [step,        setStep]        = useState<Step>("upload");
   const [dragOver,    setDragOver]    = useState(false);
   const [file,        setFile]        = useState<File | null>(null);
@@ -522,7 +518,11 @@ export default function ImportClient() {
                           ? (parseFloat(t.pnl_usd) >= 0 ? "#50E3B8" : "#F07C7C")
                           : "#4B6080",
                       }}>
-                        {fmtPnl(t.pnl_usd)}
+                        {t.pnl_usd
+                          ? (parseFloat(t.pnl_usd) >= 0
+                              ? `+${formatPnl(parseFloat(t.pnl_usd))}`
+                              : formatPnl(parseFloat(t.pnl_usd)))
+                          : "—"}
                       </td>
                     </tr>
                   ))}

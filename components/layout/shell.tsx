@@ -3,6 +3,7 @@ import Sidebar from "./sidebar";
 import MindEngineStrip from "./MindEngineStrip";
 import BottomTabBar from "./BottomTabBar";
 import { NavLockProvider } from "./NavLockContext";
+import { CurrencyProvider } from "./CurrencyContext";
 import type { User } from "@/db/schema/users";
 
 interface ShellProps {
@@ -21,6 +22,7 @@ export default function Shell({ children, user }: ShellProps) {
 
   return (
     <NavLockProvider>
+      <CurrencyProvider initialCurrency={user?.preferredCurrency ?? "USD"}>
       <div
         style={{
           display: "flex",
@@ -58,6 +60,7 @@ export default function Shell({ children, user }: ShellProps) {
         {/* Bottom tab bar — visible only below md */}
         <BottomTabBar />
       </div>
+      </CurrencyProvider>
     </NavLockProvider>
   );
 }

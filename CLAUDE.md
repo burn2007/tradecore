@@ -9,6 +9,21 @@ Primary goals: works on cheap Android phones, offline-capable PWA, P&L in local 
 
 ## Prompts Completed
 
+### Prompt 20 — Real currency conversion wired end-to-end ✅
+- **Root cause**: `lib/currency.ts` had no conversion logic — `formatCurrency` only applied the target currency's symbol to the raw USD amount. Every P&L display site also hardcoded `$` and bypassed the currency setting entirely.
+- **`lib/currency.ts`** (full rewrite): Added module-level `_rates` cache (starts as fallback). `fetchRates()` checks `localStorage` (`tc_fx_rates`, 1 hr TTL) then calls `https://api.frankfurter.app/latest?from=USD`; falls back to hardcoded rates (`NGN: 1600, GHS: 15, KES: 130, ZAR: 18, GBP: 0.79, EUR: 0.92`) on any error. `convertFromUSD(amount, currency)` multiplies by `_rates[currency]`. `formatCurrency(amount, currency)` converts then formats with `Intl.NumberFormat`. Backward-compat aliases (`AfricanCurrency`, `CURRENCY_CONFIG`, `formatPips`, `formatRR`, `formatPercent`) preserved.
+- **`components/layout/CurrencyContext.tsx`** (new): React context + `CurrencyProvider` client component. Receives `initialCurrency` prop from Shell (server-rendered, re-flows on `router.refresh()`). Calls `fetchRates()` on mount; bumps `rateTick` state when resolved so `useMemo` re-runs and all consumers re-render with live rates. Exposes `{ currency, symbol, formatPnl, convert }`.
+- **`hooks/useCurrency.ts`** (new): Re-exports `useCurrency` from `CurrencyContext`.
+- **`components/layout/shell.tsx`**: Wraps entire layout in `<CurrencyProvider initialCurrency={user?.preferredCurrency ?? "USD"}>` inside `NavLockProvider`. Topbar's `router.refresh()` on currency change causes server to re-render Shell with new `preferredCurrency`, which flows into the provider and re-renders all consumers.
+- **`app/(app)/dashboard/page.tsx`**: Removed `preferredCurrency` from DB select and from props passed to `DashboardClient` — currency now comes from context.
+- **`components/dashboard/DashboardClient.tsx`**: Removed `preferredCurrency` prop + `formatCurrency` import. Calls `useCurrency()` at top level. All KPI card values (`totalPnl`, `phantomPnl`, `behavioralGap`, `monthlyPnl`) now call `formatPnl()`. Equity chart tooltip formatter now calls `formatPnl(v)` instead of hardcoded `$`. Inline `TradeRow` sub-component now calls `useCurrency()` and uses `formatPnl`.
+- **`components/trades/TradeRow.tsx`**: Was `+$200.00` hardcoded. Now calls `useCurrency()` → `formatPnl`. Used by journal list and admin panel read-only view.
+- **`components/trades/TradeDetail.tsx`**: Big P&L heading, commission, and swap fields — all were hardcoded `$`. Now use `formatPnl()`.
+- **`components/trades/ImportClient.tsx`**: Standalone `fmtPnl` module function removed. Component now calls `useCurrency()` and uses `formatPnl` in the import preview table.
+- **Nothing converted before this PR**: AnalyticsClient shows only win rates / trade counts — no P&L amounts rendered, no change needed.
+- `tsc --noEmit` → zero errors ✅
+- Test scenario: `pnl_usd = 200`, `preferredCurrency = NGN` → displays `+₦320,000.00` (live) or `+₦320,000.00` (fallback ×1600) on dashboard KPIs, equity tooltip, journal list, and trade detail simultaneously.
+
 ### Prompt 19 — Migration apply + debug cleanup ✅
 - **Migration applied**: `0004_admin_destination.sql` (adds `last_chosen_destination varchar(10)` to `users`) had been generated but never run against the live Neon DB, causing a `column does not exist` error. Ran `npx drizzle-kit migrate`; confirmed column exists via `information_schema.columns` live query.
 - **Debug cleanup**: Removed 8 `[admin-diag]` `console.log` statements and their three `// ── [DIAG]` section headers from `proxy.ts`. Logic unchanged; only the temporary path-masking diagnostics were stripped.

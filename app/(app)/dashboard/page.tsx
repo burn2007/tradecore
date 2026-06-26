@@ -13,12 +13,11 @@ export default async function DashboardPage() {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser) redirect("/login");
 
-  let firstName         = "Trader";
-  let preferredCurrency = "USD";
+  let firstName = "Trader";
 
   try {
     const [row] = await db
-      .select({ displayName: users.displayName, preferredCurrency: users.preferredCurrency })
+      .select({ displayName: users.displayName })
       .from(users)
       .where(eq(users.id, authUser.id))
       .limit(1);
@@ -30,11 +29,9 @@ export default async function DashboardPage() {
     } else if (authUser.email) {
       firstName = authUser.email.split("@")[0];
     }
-
-    if (row?.preferredCurrency) preferredCurrency = row.preferredCurrency;
   } catch {
-    // DB temporarily unavailable — use defaults
+    // DB temporarily unavailable — use default
   }
 
-  return <DashboardClient firstName={firstName} preferredCurrency={preferredCurrency} />;
+  return <DashboardClient firstName={firstName} />;
 }

@@ -12,8 +12,7 @@ import {
   Tooltip,
 } from "recharts";
 import { createClient } from "@/lib/supabase/browser";
-import { formatCurrency } from "@/lib/currency";
-import type { AfricanCurrency } from "@/lib/currency";
+import { useCurrency } from "@/hooks/useCurrency";
 import { ToastStack, pushToast } from "@/components/ui/Toast";
 
 /* ─────────────────────────────────── Types ── */
@@ -259,6 +258,7 @@ function ScoreRing({ score, color }: { score: number; color: string }) {
 
 /* Recent trade row */
 function TradeRow({ trade }: { trade: RecentTrade }) {
+  const { formatPnl } = useCurrency();
   const pnl      = trade.pnlUsd != null ? parseFloat(trade.pnlUsd) : null;
   const stripe   = pnl === null ? "#E2B96F" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
   const pnlColor = pnl === null ? "#6B8AAA" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
@@ -302,7 +302,7 @@ function TradeRow({ trade }: { trade: RecentTrade }) {
             </span>
           </div>
           <span style={{ fontSize: 12, fontWeight: 500, color: pnlColor }}>
-            {pnl === null ? "—" : `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}`}
+            {pnl === null ? "—" : pnl >= 0 ? `+${formatPnl(pnl)}` : formatPnl(pnl)}
           </span>
         </div>
       </div>
@@ -312,16 +312,10 @@ function TradeRow({ trade }: { trade: RecentTrade }) {
 
 /* ─────────────────────────────── Main ── */
 
-export default function DashboardClient({
-  firstName,
-  preferredCurrency,
-}: {
-  firstName: string;
-  preferredCurrency: string;
-}) {
-  const qc       = useQueryClient();
-  const currency = (preferredCurrency || "USD") as AfricanCurrency;
-  const now      = new Date();
+export default function DashboardClient({ firstName }: { firstName: string }) {
+  const qc                          = useQueryClient();
+  const { formatPnl, currency }     = useCurrency();
+  const now                         = new Date();
 
   const greet     = greeting(now.getUTCHours());
   const week      = weekNumber(now);
@@ -383,10 +377,10 @@ export default function DashboardClient({
   const pnlColor        = totalPnl >= 0 ? "#50E3B8" : "#F07C7C";
   /* Monthly sub-text */
   const monthlySub      = stats
-    ? `This month: ${monthlyPnl >= 0 ? "+" : ""}${formatCurrency(monthlyPnl, currency)}`
+    ? `This month: ${monthlyPnl >= 0 ? "+" : ""}${formatPnl(monthlyPnl)}`
     : "no trades yet";
   /* Monthly badge for equity chart */
-  const monthlyBadgeAmt = `${monthlyPnl >= 0 ? "+" : ""}${formatCurrency(monthlyPnl, currency)}`;
+  const monthlyBadgeAmt = `${monthlyPnl >= 0 ? "+" : ""}${formatPnl(monthlyPnl)}`;
   const monthlyBadgePos = monthlyPnl >= 0;
 
   /* Discipline score — read from stats_cache (computed server-side) */
@@ -463,7 +457,7 @@ export default function DashboardClient({
             accent="#50E3B8"
             valueColor={stats ? pnlColor : "#4B6080"}
             loading={isLoading}
-            value={stats ? formatCurrency(totalPnl, currency) : "—"}
+            value={stats ? formatPnl(totalPnl) : "—"}
             sub={monthlySub}
           />
 
@@ -472,8 +466,8 @@ export default function DashboardClient({
             label="Phantom P&L"
             accent="#E2B96F"
             loading={isLoading}
-            value={stats ? formatCurrency(phantomPnl, currency) : "—"}
-            sub={stats ? `Behavioral gap: ${formatCurrency(behavioralGap, currency)}` : "—"}
+            value={stats ? formatPnl(phantomPnl) : "—"}
+            sub={stats ? `Behavioral gap: ${formatPnl(behavioralGap)}` : "—"}
           />
 
           {/* Card 3 — Win rate */}
@@ -538,7 +532,7 @@ export default function DashboardClient({
                   }}
                   labelStyle={{ color: "#4B6080" }}
                   formatter={(v: number, name: string) => [
-                    `$${v.toFixed(2)}`,
+                    formatPnl(v),
                     name === "real" ? "Actual P&L" : "Phantom P&L",
                   ]}
                 />
