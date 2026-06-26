@@ -55,6 +55,9 @@ export const users = pgTable("users", {
     onDelete: "set null",
   }),
 
+  /** Last destination chosen on the choose-destination screen — 'trader' | 'admin' */
+  lastChosenDestination: varchar("last_chosen_destination", { length: 10 }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

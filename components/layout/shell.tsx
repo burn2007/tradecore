@@ -11,6 +11,14 @@ interface ShellProps {
 }
 
 export default function Shell({ children, user }: ShellProps) {
+  // Read admin path server-side — never expose via a public env var.
+  // Only passed to Topbar when the user is an admin to avoid the cost of
+  // a prop that can never be used.
+  const adminPath =
+    user?.role === "admin"
+      ? `/${process.env.ADMIN_PANEL_PATH ?? ""}`
+      : undefined;
+
   return (
     <NavLockProvider>
       <div
@@ -22,7 +30,7 @@ export default function Shell({ children, user }: ShellProps) {
           backgroundColor: "var(--color-bg)",
         }}
       >
-        <Topbar user={user} />
+        <Topbar user={user} adminPath={adminPath} />
 
         <div
           style={{

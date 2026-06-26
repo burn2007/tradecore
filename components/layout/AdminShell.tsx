@@ -54,7 +54,7 @@ export default function AdminShell({ admin, children }: AdminShellProps) {
         <div style={{ display: "flex", alignItems: "center", gap: 14, paddingRight: 14, flexShrink: 0 }}>
           <span style={{ fontSize: 10, color: "#2E4060" }}>{admin.email}</span>
           <Link href="/dashboard" style={{ fontSize: 11, color: "#6B8AAA", textDecoration: "none" }}>
-            Back to app
+            Switch to App
           </Link>
         </div>
       </header>

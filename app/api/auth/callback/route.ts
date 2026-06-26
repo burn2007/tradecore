@@ -53,5 +53,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/onboarding`);
   }
 
-  return NextResponse.redirect(`${origin}${next}`);
+  // Returning user — admins go to choose-destination, regular users go to /dashboard
+  const [returning] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+
+  const dest = returning?.role === "admin" ? "/choose-destination" : next;
+  return NextResponse.redirect(`${origin}${dest}`);
 }

@@ -10,6 +10,7 @@ import type { User } from "@/db/schema/users";
 
 interface TopbarProps {
   user: User | null;
+  adminPath?: string;
 }
 
 const NAV_ITEMS = [
@@ -80,7 +81,7 @@ function LiveIndicator() {
   );
 }
 
-export default function Topbar({ user }: TopbarProps) {
+export default function Topbar({ user, adminPath }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { locked } = useNavLock();
@@ -293,6 +294,24 @@ export default function Topbar({ user }: TopbarProps) {
             </div>
           )}
         </div>
+
+        {/* Admin switcher — only rendered for admin users */}
+        {user?.role === "admin" && adminPath && (
+          <a
+            href={adminPath}
+            style={{
+              fontSize: 10,
+              color: "#6B8AAA",
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+              transition: "color 0.15s",
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = "#C9C2AE"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = "#6B8AAA"; }}
+          >
+            Switch to Admin
+          </a>
+        )}
 
         {/* User avatar + dropdown */}
         <div ref={userMenuRef} style={{ position: "relative" }}>

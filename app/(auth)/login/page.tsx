@@ -23,7 +23,9 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      window.location.href = "/dashboard";
+      const res = await fetch("/api/auth/role");
+      const { role } = await res.json() as { role: string };
+      window.location.href = role === "admin" ? "/choose-destination" : "/dashboard";
     }
   }
 

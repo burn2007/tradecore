@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
 
-const PROTECTED = ["/dashboard", "/journal", "/analytics", "/settings", "/onboarding"];
+const PROTECTED = ["/dashboard", "/journal", "/analytics", "/settings", "/onboarding", "/choose-destination"];
 const AUTH_ROUTES = ["/login", "/register"];
 
 export async function proxy(request: NextRequest) {
