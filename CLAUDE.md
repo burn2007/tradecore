@@ -9,6 +9,22 @@ Primary goals: works on cheap Android phones, offline-capable PWA, P&L in local 
 
 ## Prompts Completed
 
+### Prompt 18 — Admin Destination-Choice Flow + App/Panel Switchers ✅
+- **Schema**: Added `last_chosen_destination varchar(10)` (nullable) to `users` table. Migration `0004_admin_destination.sql` written — apply with `npm run db:push`.
+- **New page** `app/(auth)/choose-destination/page.tsx`: Server component; calls `requireAdmin()` as a safety check (non-admins and unauthenticated users are immediately redirected). Reads `ADMIN_PANEL_PATH` from env server-side (never exposed as a public var). Fetches `displayName` and `lastChosenDestination` from Neon, passes both to the client component.
+- **New component** `components/auth/ChooseDestinationClient.tsx`: Centred Dusk card (480 px max-width, gold top border) matching login page styling. Title "Welcome back, [firstName]" / subtitle "Where would you like to go?". Two clickable destination cards side by side (stack on mobile) — Trader app (chart icon, gold) and Admin panel (shield icon, ice). Previously chosen card gets a jade border glow + checkmark badge. "Remember my choice for next time" checkbox (unchecked by default); when checked, POSTs to `/api/auth/set-destination` before navigation. Page always appears for admins — never auto-skips.
+- **New API routes**:
+  - `GET /api/auth/role` — lightweight role lookup used by the login page after email/password success.
+  - `POST /api/auth/set-destination` — validates `{ destination: 'trader' | 'admin' }`, writes `last_chosen_destination` to the user's Neon row.
+- **Login flow** (`app/(auth)/login/page.tsx`): After `signInWithPassword` success, calls `/api/auth/role`; admins redirect to `/choose-destination`, regular users redirect to `/dashboard` — no change to regular-user behaviour.
+- **OAuth callback** (`app/api/auth/callback/route.ts`): Returning-user path reads role from Neon; admins go to `/choose-destination`, regular users keep existing `next` param behaviour.
+- **Trader-app topbar** (`components/layout/topbar.tsx`): Accepts new `adminPath?: string` prop. Renders "Switch to Admin" (10px, `#6B8AAA`, hover `#C9C2AE`) immediately before the user avatar — only when `user.role === 'admin'` AND `adminPath` is set. Never visible to regular users.
+- **Shell** (`components/layout/shell.tsx`): Reads `process.env.ADMIN_PANEL_PATH` server-side, computes `adminPath` only for admin users, passes it to `<Topbar>`.
+- **Admin topbar** (`components/layout/AdminShell.tsx`): "Back to app" renamed to "Switch to App" for symmetry with the trader-side switcher.
+- **Proxy** (`proxy.ts`): `/choose-destination` added to `PROTECTED` list so unauthenticated requests are redirected to `/login` before the page loads.
+- **Security posture unchanged**: `(app)` layout `getUser()` check and admin layout `requireAdmin()` both still run independently on every request regardless of navigation path. This feature is additive convenience only.
+- Build verified: `tsc --noEmit` zero errors, `npm run build` passes with `/choose-destination` in route manifest ✅
+
 ### Prompt 16/17 — Admin Panel User Management (Soft Delete & Reserve) ✅
 - **Database updates**: Added `deleted_at` (timestamp) and `deleted_by` (uuid references users.id) to `users` table. Generated migration `0003_loving_mentor.sql` and applied.
 - **Middleware / Gate**: Updated `proxy.ts` with a raw `neon()` SQL query to check `deleted_at`. Any authenticated request to a protected route by a soft-deleted user immediately calls `supabase.auth.signOut()` and redirects to the new `app/deactivated/page.tsx`. Secondary check added to `app/(app)/layout.tsx` for defense-in-depth.
