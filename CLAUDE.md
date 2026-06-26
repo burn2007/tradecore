@@ -9,6 +9,10 @@ Primary goals: works on cheap Android phones, offline-capable PWA, P&L in local 
 
 ## Prompts Completed
 
+### Prompt 19 — Migration apply + debug cleanup ✅
+- **Migration applied**: `0004_admin_destination.sql` (adds `last_chosen_destination varchar(10)` to `users`) had been generated but never run against the live Neon DB, causing a `column does not exist` error. Ran `npx drizzle-kit migrate`; confirmed column exists via `information_schema.columns` live query.
+- **Debug cleanup**: Removed 8 `[admin-diag]` `console.log` statements and their three `// ── [DIAG]` section headers from `proxy.ts`. Logic unchanged; only the temporary path-masking diagnostics were stripped.
+
 ### Prompt 18 — Admin Destination-Choice Flow + App/Panel Switchers ✅
 - **Schema**: Added `last_chosen_destination varchar(10)` (nullable) to `users` table. Migration `0004_admin_destination.sql` written — apply with `npm run db:push`.
 - **New page** `app/(auth)/choose-destination/page.tsx`: Server component; calls `requireAdmin()` as a safety check (non-admins and unauthenticated users are immediately redirected). Reads `ADMIN_PANEL_PATH` from env server-side (never exposed as a public var). Fetches `displayName` and `lastChosenDestination` from Neon, passes both to the client component.

@@ -47,12 +47,7 @@ export async function proxy(request: NextRequest) {
   // route's existence to anyone probing for it.
   const ADMIN_REAL_FOLDER = "/admin-panel";
 
-  // ── [DIAG] Step 1: incoming request ──────────────────────────────────────
-  console.log("[admin-diag] pathname            :", JSON.stringify(pathname));
-  console.log("[admin-diag] ADMIN_PANEL_PATH raw:", JSON.stringify(process.env.ADMIN_PANEL_PATH));
-
   if (pathname === ADMIN_REAL_FOLDER || pathname.startsWith(`${ADMIN_REAL_FOLDER}/`)) {
-    console.log("[admin-diag] → hit real-folder block → 404 rewrite");
     return NextResponse.rewrite(new URL(`/__tc_admin_404__${pathname}`, request.url));
   }
 
@@ -63,26 +58,15 @@ export async function proxy(request: NextRequest) {
   const isAdminPathConfigured =
     !!adminSecretPath && adminSecretPath !== "replace-with-a-secret-path-only-you-know";
 
-  // ── [DIAG] Step 2: is the env var usable? ────────────────────────────────
-  console.log("[admin-diag] adminSecretPath     :", JSON.stringify(adminSecretPath));
-  console.log("[admin-diag] isAdminPathConfigured:", isAdminPathConfigured);
-
   if (isAdminPathConfigured) {
     const secretRoot = `/${adminSecretPath}`;
     const exactMatch = pathname === secretRoot;
     const prefixMatch = pathname.startsWith(`${secretRoot}/`);
     const match = exactMatch || prefixMatch;
 
-    // ── [DIAG] Step 3: does pathname hit the secret root? ────────────────
-    console.log("[admin-diag] secretRoot          :", JSON.stringify(secretRoot));
-    console.log("[admin-diag] pathname===secretRoot:", exactMatch);
-    console.log("[admin-diag] startsWith(secretRoot/):", prefixMatch);
-    console.log("[admin-diag] overall match       :", match);
-
     if (match) {
       const url = request.nextUrl.clone();
       url.pathname = `${ADMIN_REAL_FOLDER}${pathname.slice(secretRoot.length)}`;
-      console.log("[admin-diag] → rewriting to      :", url.pathname);
       return NextResponse.rewrite(url);
     }
   }
