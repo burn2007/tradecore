@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── Dusk Design Language ── do not deviate from these values ── */
+  --color-bg: #111827;
+  --color-surface: #0f1623;
+  --color-deep: #0a0f1a;
+  --color-border: #1a2640;
+  --color-border-subtle: #0f1a2a;
+  --color-gold: #e2b96f;
+  --color-jade: #50e3b8;
+  --color-rose: #f07c7c;
+  --color-ice: #8ba8c4;
+  --color-text-primary: #c9c2ae;
+  --color-text-secondary: #6b8aaa;
+  --color-text-muted: #2e4060;
+  --color-card: #111c2e;
+
+  /* ── Layout dimensions ── */
+  --topbar-height: 50px;
+  --sidebar-width: 52px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-dm-sans), "DM Sans", sans-serif;
+  font-weight: 400;
+  margin: 0;
+}
+
+/* ── Dusk card base — applied via className="dusk-card" ── */
+.dusk-card {
+  background-color: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+}
+
+/* ── Dusk scrollbar ── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ── Live status pulsing dot ── */
+@keyframes tc-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.tc-pulse {
+  animation: tc-pulse 2s ease-in-out infinite;
+}
+
+/* ── Skeleton shimmer ── */
+@keyframes tc-shimmer {
+  0%   { background-position:  200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── KPI card value — responsive ── */
+.tc-kpi-value { font-size: 21px; }
+@media (max-width: 430px) {
+  .tc-kpi-value { font-size: 15px; }
+  .tc-kpi-card  { padding: 10px 10px 12px; }
+}

@@ -1,0 +1,706 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  Line,
+  ReferenceLine,
+  Tooltip,
+} from "recharts";
+import { createClient } from "@/lib/supabase/browser";
+import { formatCurrency } from "@/lib/currency";
+import type { AfricanCurrency } from "@/lib/currency";
+import { ToastStack, pushToast } from "@/components/ui/Toast";
+
+/* ─────────────────────────────────── Types ── */
+
+interface StatsCache {
+  winRate:           string | null;
+  totalPnl:          string | null;
+  totalTrades:       number;
+  closedTrades:      number;
+  ruleCompliancePct: string | null;
+  bestSession:       string | null;
+  currentStreak:     number;
+  disciplineScore:   string | null;
+}
+
+interface EquityPoint { date: string; real: number; phantom: number; }
+
+interface SessionEdge {
+  session: string;
+  total:   number;
+  wins:    number;
+  winRate: number;
+}
+
+interface RecentTrade {
+  id:             string;
+  symbol:         string;
+  direction:      string;
+  pnlUsd:         string | null;
+  setupTag:       string | null;
+  session:        string | null;
+  source:         string;
+  entryAt:        string;
+  exitAt:         string | null;
+  violationCount: number;
+}
+
+interface MilestoneNotification {
+  milestoneKey: string;
+  achievedAt:   string;
+}
+
+interface DashboardData {
+  stats:          StatsCache | null;
+  equityCurve:    EquityPoint[];
+  phantomPnl:     number;
+  behavioralGap:  number;
+  monthlyPnl:     number;
+  sessionEdge:    SessionEdge[];
+  recentTrades:   RecentTrade[];
+  totalTrades:    number;
+  newly_achieved: MilestoneNotification[];
+}
+
+/* ─────────────────────────────── Helpers ── */
+
+function greeting(utcHour: number) {
+  if (utcHour >= 5  && utcHour < 12) return "Good morning";
+  if (utcHour >= 12 && utcHour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function weekNumber(d: Date) {
+  const jan1 = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil((((d.getTime() - jan1.getTime()) / 86_400_000) + jan1.getDay() + 1) / 7);
+}
+
+function londonStatus(): string {
+  const now = new Date();
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const open = 7 * 60, close = 16 * 60;
+  if (mins >= open && mins < close) return "London session active";
+  const until = mins < open ? open - mins : 24 * 60 - mins + open;
+  if (until <= 120) {
+    const h = Math.floor(until / 60), m = until % 60;
+    return `London opens in ${h > 0 ? `${h}h ` : ""}${m}m`;
+  }
+  return "";
+}
+
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+}
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Normalise legacy DB values (tokyo, sydney, new_york, overlap_london_ny) to display labels. */
+function sessionLabel(key: string | null | undefined): string {
+  if (!key) return "";
+  if (key === "newyork"  || key === "new_york" || key === "overlap_london_ny") return "New York";
+  if (key === "african")  return "African";
+  if (key === "london")   return "London";
+  if (key === "asian" || key === "tokyo" || key === "sydney") return "Asian";
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+/* ──────────────────── Milestone toast copy ── */
+
+const MILESTONE_LABELS: Record<string, { label: string; icon: string }> = {
+  first_trade:          { icon: "🎯", label: "First trade logged!" },
+  "10_trades":          { icon: "📈", label: "10 trades logged" },
+  "50_trades":          { icon: "🔥", label: "50 trades logged" },
+  "100_trades":         { icon: "💎", label: "100 trades logged" },
+  first_profit:         { icon: "✅", label: "First profitable session!" },
+  first_compliant_week: { icon: "🏆", label: "Perfect compliance week!" },
+  "7_day_streak":       { icon: "⚡", label: "7-day compliance streak!" },
+};
+
+/* ──────────────────────────── Sub-components ── */
+
+function Skeleton({ w = "100%", h = 16, r = 6 }: { w?: string | number; h?: number; r?: number }) {
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: r,
+      background: "linear-gradient(90deg, #111C2E 25%, #1A2640 50%, #111C2E 75%)",
+      backgroundSize: "200% 100%",
+      animation: "tc-shimmer 1.6s ease-in-out infinite",
+    }} />
+  );
+}
+
+function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      backgroundColor: "#111C2E", border: "1px solid #1A2640",
+      borderRadius: 11, padding: "14px 16px",
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function AccentBar({ color }: { color: string }) {
+  return (
+    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, backgroundColor: color }} />
+  );
+}
+
+/* KPI card — used for Net P&L, Phantom P&L, Win Rate */
+function KpiCard({
+  label, value, sub, accent, valueColor, loading, bottom,
+}: {
+  label: string; value: string; sub: string;
+  accent: string; valueColor?: string; loading: boolean;
+  bottom?: React.ReactNode;
+}) {
+  return (
+    <div className="tc-kpi-card" style={{
+      backgroundColor: "#111C2E", border: "1px solid #1A2640",
+      borderRadius: 11, padding: "12px 14px",
+      position: "relative", overflow: "hidden",
+    }}>
+      <AccentBar color={accent} />
+      <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060", margin: "0 0 6px" }}>
+        {label}
+      </p>
+      {loading ? (
+        <>
+          <Skeleton h={26} r={4} />
+          <div style={{ marginTop: 6 }}><Skeleton h={11} w="60%" r={3} /></div>
+        </>
+      ) : (
+        <>
+          <p className="tc-kpi-value" style={{ fontWeight: 500, margin: "0 0 4px", lineHeight: 1.2, color: valueColor ?? accent }}>
+            {value}
+          </p>
+          {bottom}
+          <p style={{ fontSize: 9, color: "#253650", margin: 0 }}>{sub}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* Compliance card (custom bottom — progress bar) */
+function ComplianceCard({ compliance, hasData, loading }: { compliance: number; hasData: boolean; loading: boolean }) {
+  // Only colour the accent once we have real compliance data — grey until then
+  const color = !hasData ? "#2E4060"
+    : compliance >= 80 ? "#50E3B8"
+    : compliance >= 50 ? "#E2B96F"
+    : "#F07C7C";
+  return (
+    <div className="tc-kpi-card" style={{
+      backgroundColor: "#111C2E", border: "1px solid #1A2640",
+      borderRadius: 11, padding: "12px 14px",
+      position: "relative", overflow: "hidden",
+    }}>
+      <AccentBar color={color} />
+      <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060", margin: "0 0 6px" }}>
+        Rule compliance
+      </p>
+      {loading ? (
+        <>
+          <Skeleton h={26} r={4} />
+          <div style={{ marginTop: 8 }}><Skeleton h={3} r={2} /></div>
+        </>
+      ) : (
+        <>
+          <p className="tc-kpi-value" style={{ fontWeight: 500, color, margin: "0 0 8px", lineHeight: 1.2 }}>
+            {hasData && compliance > 0 ? `${compliance.toFixed(0)}%` : "—"}
+          </p>
+          {/* 3px progress bar */}
+          <div style={{ height: 3, backgroundColor: "#1A2640", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{
+              height: "100%",
+              width: `${Math.min(compliance, 100)}%`,
+              backgroundColor: color,
+              borderRadius: 2,
+              transition: "width 0.9s ease",
+            }} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* Circular discipline score ring */
+function ScoreRing({ score, color }: { score: number; color: string }) {
+  const r = 36, cx = 44, cy = 44;
+  const circ   = 2 * Math.PI * r;
+  const offset = circ - (score / 100) * circ;
+  return (
+    <svg width={88} height={88} viewBox="0 0 88 88">
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1A2640" strokeWidth={6} />
+      <circle
+        cx={cx} cy={cy} r={r} fill="none"
+        stroke={color} strokeWidth={6}
+        strokeDasharray={circ} strokeDashoffset={offset}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${cx} ${cy})`}
+        style={{ transition: "stroke-dashoffset 0.9s ease" }}
+      />
+      <text x={cx} y={cy - 4} textAnchor="middle" fontSize={22} fontWeight={500}
+        fill={color} fontFamily="var(--font-dm-sans), DM Sans, sans-serif">{score}</text>
+      <text x={cx} y={cy + 13} textAnchor="middle" fontSize={9}
+        fill="#2E4060" fontFamily="var(--font-dm-sans), DM Sans, sans-serif">/ 100</text>
+    </svg>
+  );
+}
+
+/* Recent trade row */
+function TradeRow({ trade }: { trade: RecentTrade }) {
+  const pnl      = trade.pnlUsd != null ? parseFloat(trade.pnlUsd) : null;
+  const stripe   = pnl === null ? "#E2B96F" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
+  const pnlColor = pnl === null ? "#6B8AAA" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
+  return (
+    <Link href={`/journal/${trade.id}`} style={{ textDecoration: "none" }}>
+      <div
+        style={{
+          display: "flex", alignItems: "stretch", marginBottom: 4,
+          backgroundColor: "#0A0F1A", border: "1px solid #1A2640",
+          borderRadius: 8, overflow: "hidden", cursor: "pointer",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "#2A3A54"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "#1A2640"; }}
+      >
+        <div style={{ width: 3, backgroundColor: stripe, flexShrink: 0 }} />
+        <div style={{
+          flex: 1, padding: "8px 12px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: "#B0A898" }}>{trade.symbol}</span>
+              <span style={{
+                fontSize: 9, fontWeight: 500, borderRadius: 4, padding: "1px 6px",
+                color:            trade.direction === "long" ? "#50E3B8" : "#F07C7C",
+                backgroundColor:  trade.direction === "long" ? "#0D2420" : "#240808",
+                border: `1px solid ${trade.direction === "long" ? "#50E3B8" : "#F07C7C"}`,
+              }}>
+                {trade.direction === "long" ? "Long" : "Short"}
+              </span>
+              {trade.session && (
+                <span style={{
+                  fontSize: 9, borderRadius: 4, padding: "1px 6px",
+                  backgroundColor: "#0A1220", color: "#4B6080",
+                  border: "1px solid #1A2640",
+                }}>{sessionLabel(trade.session)}</span>
+              )}
+            </div>
+            <span style={{ fontSize: 9, color: "#2E4060" }}>
+              {fmtDate(trade.entryAt)} · {fmtTime(trade.entryAt)}
+            </span>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 500, color: pnlColor }}>
+            {pnl === null ? "—" : `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}`}
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+/* ─────────────────────────────── Main ── */
+
+export default function DashboardClient({
+  firstName,
+  preferredCurrency,
+}: {
+  firstName: string;
+  preferredCurrency: string;
+}) {
+  const qc       = useQueryClient();
+  const currency = (preferredCurrency || "USD") as AfricanCurrency;
+  const now      = new Date();
+
+  const greet     = greeting(now.getUTCHours());
+  const week      = weekNumber(now);
+  const london    = londonStatus();
+  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  /* ── Data ── */
+  const { data, isLoading } = useQuery<DashboardData>({
+    queryKey: ["dashboard"],
+    queryFn: () => fetch("/api/dashboard").then((r) => r.json()),
+    staleTime: 60_000,
+  });
+
+  /* ── Supabase Realtime ── */
+  useEffect(() => {
+    const sb = createClient();
+    const ch = sb
+      .channel("dashboard-rt")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "trades" }, () => {
+        // Delay re-fetch slightly so refresh-stats has time to run server-side
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["dashboard"] });
+          qc.invalidateQueries({ queryKey: ["trades"] });
+        }, 2500);
+      })
+      .subscribe();
+    return () => { sb.removeChannel(ch); };
+  }, [qc]);
+
+  /* ── Milestone toasts ── */
+  useEffect(() => {
+    const milestones = data?.newly_achieved ?? [];
+    for (const m of milestones) {
+      const meta = MILESTONE_LABELS[m.milestoneKey];
+      if (meta) {
+        pushToast({
+          id:     `${m.milestoneKey}-${m.achievedAt}`,
+          icon:   meta.icon,
+          header: "Milestone unlocked",
+          label:  meta.label,
+          accent: "#E2B96F",
+        });
+      }
+    }
+  }, [data?.newly_achieved]);
+
+  /* ── Derived scalars ── */
+  const stats       = data?.stats ?? null;
+  const totalPnl    = parseFloat(stats?.totalPnl    ?? "0");
+  const winRate     = parseFloat(stats?.winRate      ?? "0");
+  const compliance  = parseFloat(stats?.ruleCompliancePct ?? "0");
+  const phantomPnl  = data?.phantomPnl   ?? 0;
+  const behavioralGap = data?.behavioralGap ?? 0;
+  const monthlyPnl  = data?.monthlyPnl   ?? 0;
+  const totalTrades = data?.totalTrades  ?? 0;
+  const closedTrades = stats?.closedTrades ?? 0;
+
+  /* Net P&L: jade if positive, rose if negative */
+  const pnlColor        = totalPnl >= 0 ? "#50E3B8" : "#F07C7C";
+  /* Monthly sub-text */
+  const monthlySub      = stats
+    ? `This month: ${monthlyPnl >= 0 ? "+" : ""}${formatCurrency(monthlyPnl, currency)}`
+    : "no trades yet";
+  /* Monthly badge for equity chart */
+  const monthlyBadgeAmt = `${monthlyPnl >= 0 ? "+" : ""}${formatCurrency(monthlyPnl, currency)}`;
+  const monthlyBadgePos = monthlyPnl >= 0;
+
+  /* Discipline score — read from stats_cache (computed server-side) */
+  const discipline      = stats?.disciplineScore != null ? Math.round(parseFloat(stats.disciplineScore)) : 0;
+  const disciplineColor = discipline >= 80 ? "#50E3B8" : discipline >= 50 ? "#E2B96F" : "#F07C7C";
+
+  /* ── Session edge: gold = best, rose = worst, ice = middle ── */
+  const SESSION_KEYS = ["london", "newyork", "asian", "african"];
+  const sessionMap   = useMemo(() => {
+    const m: Record<string, SessionEdge> = {};
+    (data?.sessionEdge ?? []).forEach((s) => { m[s.session] = s; });
+    return m;
+  }, [data?.sessionEdge]);
+
+  const sessions = SESSION_KEYS.map((k) =>
+    sessionMap[k] ?? { session: k, total: 0, wins: 0, winRate: 0 }
+  );
+
+  const ranked = useMemo(
+    () => [...sessions].filter((s) => s.total > 0).sort((a, b) => b.winRate - a.winRate),
+    [sessions],
+  );
+  const bestKey  = ranked[0]?.session ?? null;
+  const worstKey = ranked[ranked.length - 1]?.session ?? null;
+
+  function barColor(s: SessionEdge): string {
+    if (s.total === 0)           return "#1A2640";
+    if (s.session === bestKey)   return "#E2B96F";
+    if (s.session === worstKey)  return "#F07C7C";
+    return "#8BA8C4";
+  }
+
+  /* ── Equity chart data: inject zero start point ── */
+  const equityCurve = data?.equityCurve ?? [];
+  const chartData   = equityCurve.length > 0
+    ? [{ date: "", real: 0, phantom: 0 }, ...equityCurve]
+    : [];
+
+  /* ── Render ── */
+  return (
+    <>
+      <style>{`
+        @keyframes tc-shimmer {
+          0%   { background-position:  200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .tc-kpi-value { font-size: 21px; }
+        @media (max-width: 430px) {
+          .tc-kpi-value { font-size: 15px !important; }
+          .tc-kpi-card  { padding: 10px 10px 12px !important; }
+        }
+      `}</style>
+      <ToastStack />
+
+      <div style={{ maxWidth: 720, margin: "0 auto", paddingBottom: 64 }}>
+
+        {/* ── Page header ── */}
+        <div style={{ marginBottom: 20, paddingTop: 4 }}>
+          <p style={{ fontSize: 16, fontWeight: 500, color: "#C9C2AE", margin: "0 0 4px" }}>
+            {greet}, {firstName}
+          </p>
+          <p style={{ fontSize: 10, color: "#2E4060", margin: 0 }}>
+            Week {week} · {totalTrades} trade{totalTrades !== 1 ? "s" : ""} logged
+            {london && ` · ${london}`}
+          </p>
+        </div>
+
+        {/* ── KPI row ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+
+          {/* Card 1 — Net P&L */}
+          <KpiCard
+            label="Net P&L"
+            accent="#50E3B8"
+            valueColor={stats ? pnlColor : "#4B6080"}
+            loading={isLoading}
+            value={stats ? formatCurrency(totalPnl, currency) : "—"}
+            sub={monthlySub}
+          />
+
+          {/* Card 2 — Phantom P&L */}
+          <KpiCard
+            label="Phantom P&L"
+            accent="#E2B96F"
+            loading={isLoading}
+            value={stats ? formatCurrency(phantomPnl, currency) : "—"}
+            sub={stats ? `Behavioral gap: ${formatCurrency(behavioralGap, currency)}` : "—"}
+          />
+
+          {/* Card 3 — Win rate */}
+          <KpiCard
+            label="Win rate"
+            accent="#8BA8C4"
+            loading={isLoading}
+            value={stats ? `${winRate.toFixed(1)}%` : "—"}
+            sub={stats ? `${closedTrades} of ${totalTrades} trades` : "no trades yet"}
+          />
+
+          {/* Card 4 — Rule compliance */}
+          <ComplianceCard
+            compliance={compliance}
+            hasData={stats?.ruleCompliancePct != null}
+            loading={isLoading}
+          />
+        </div>
+
+        {/* ── Equity curve ── */}
+        <Card style={{ marginBottom: 12 }}>
+          {/* Card header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060" }}>
+              Equity curve — {monthLabel}
+            </span>
+            {!isLoading && stats && (
+              <span style={{
+                fontSize: 9, fontWeight: 500, borderRadius: 4, padding: "2px 8px",
+                backgroundColor: monthlyBadgePos ? "#0D2420" : "#240808",
+                color:           monthlyBadgePos ? "#50E3B8" : "#F07C7C",
+                border: `1px solid ${monthlyBadgePos ? "#50E3B8" : "#F07C7C"}`,
+              }}>
+                {monthlyBadgeAmt}
+              </span>
+            )}
+          </div>
+
+          {/* Chart */}
+          {isLoading ? (
+            <Skeleton h={70} r={4} />
+          ) : equityCurve.length === 0 ? (
+            <div style={{ height: 70, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 12, color: "#2E4060" }}>
+                No closed trades yet — your equity curve will appear here
+              </span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={70}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 0, left: 0, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="tcGoldGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#E2B96F" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#E2B96F" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <ReferenceLine y={0} stroke="#1A2640" strokeDasharray="3 3" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#111C2E", border: "1px solid #1A2640",
+                    borderRadius: 6, fontSize: 11,
+                  }}
+                  labelStyle={{ color: "#4B6080" }}
+                  formatter={(v: number, name: string) => [
+                    `$${v.toFixed(2)}`,
+                    name === "real" ? "Actual P&L" : "Phantom P&L",
+                  ]}
+                />
+                {/* Real equity area */}
+                <Area
+                  type="monotone" dataKey="real"
+                  stroke="#E2B96F" strokeWidth={1.5}
+                  fill="url(#tcGoldGrad)"
+                  dot={false} activeDot={{ r: 3, fill: "#E2B96F" }}
+                />
+                {/* Phantom ghost line */}
+                <Line
+                  type="monotone" dataKey="phantom"
+                  stroke="#E2B96F" strokeWidth={0.8}
+                  strokeDasharray="4 3" strokeOpacity={0.35}
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+
+          {/* Legend */}
+          {!isLoading && equityCurve.length > 0 && (
+            <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ width: 16, height: 1.5, backgroundColor: "#E2B96F" }} />
+                <span style={{ fontSize: 9, color: "#4B6080" }}>Actual P&L</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{
+                  width: 16, height: 0,
+                  borderTop: "1.5px dashed #E2B96F",
+                  opacity: 0.5,
+                }} />
+                <span style={{ fontSize: 9, color: "#4B6080" }}>Phantom P&L (rule-perfect)</span>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* ── Recent trades ── */}
+        <Card style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060" }}>
+              Recent trades
+            </span>
+            <Link href="/journal" style={{ fontSize: 11, color: "#4B6080", textDecoration: "none" }}>
+              View all →
+            </Link>
+          </div>
+
+          {isLoading ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={48} r={6} />)}
+            </div>
+          ) : (data?.recentTrades ?? []).length === 0 ? (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <p style={{ fontSize: 12, color: "#4B6080", margin: "0 0 12px" }}>
+                No trades logged yet.
+              </p>
+              <Link href="/journal/new" style={{
+                display: "inline-flex", alignItems: "center",
+                height: 34, padding: "0 14px", borderRadius: 8,
+                backgroundColor: "#E2B96F", color: "#0A0F1A",
+                fontSize: 12, fontWeight: 500, textDecoration: "none",
+              }}>
+                + Log your first trade
+              </Link>
+            </div>
+          ) : (
+            (data?.recentTrades ?? []).map((t) => <TradeRow key={t.id} trade={t} />)
+          )}
+        </Card>
+
+        {/* ── Session edge + Discipline score ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+
+          {/* Session edge */}
+          <Card>
+            <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060", margin: "0 0 12px" }}>
+              Session edge
+            </p>
+            {isLoading ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={14} r={3} />)}
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {sessions.map((s) => {
+                    const bc = barColor(s);
+                    return (
+                      <div key={s.session} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 9, color: "#2E4060", width: 58, flexShrink: 0 }}>
+                          {sessionLabel(s.session)}
+                        </span>
+                        <div style={{
+                          flex: 1, height: 3,
+                          backgroundColor: "#1A2640", borderRadius: 2, overflow: "hidden",
+                        }}>
+                          <div style={{
+                            height: "100%",
+                            width: s.total > 0 ? `${s.winRate}%` : "0%",
+                            backgroundColor: bc,
+                            borderRadius: 2,
+                            transition: "width 0.9s ease",
+                          }} />
+                        </div>
+                        <span style={{
+                          fontSize: 9,
+                          color: s.total > 0 ? bc : "#2E4060",
+                          width: 26, textAlign: "right",
+                        }}>
+                          {s.total > 0 ? `${s.winRate}%` : "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {bestKey && (
+                  <p style={{ fontSize: 10, color: "#6B8AAA", margin: "12px 0 0" }}>
+                    Your edge is the{" "}
+                    <span style={{ color: "#E2B96F", fontWeight: 500 }}>
+                      {sessionLabel(bestKey)}
+                    </span>{" "}
+                    session
+                  </p>
+                )}
+              </>
+            )}
+          </Card>
+
+          {/* Discipline score */}
+          <Card style={{
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+          }}>
+            <p style={{
+              fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em",
+              color: "#2E4060", margin: "0 0 10px", alignSelf: "flex-start",
+            }}>
+              Discipline score
+            </p>
+            {isLoading ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                <Skeleton w={88} h={88} r={44} />
+                <Skeleton w={100} h={11} r={3} />
+              </div>
+            ) : (
+              <>
+                <ScoreRing score={discipline} color={disciplineColor} />
+                <p style={{ fontSize: 9, color: "#2E4060", margin: "8px 0 0", textAlign: "center" }}>
+                  {stats?.currentStreak
+                    ? `${stats.currentStreak}-day compliance streak`
+                    : "Start your streak today"}
+                </p>
+              </>
+            )}
+          </Card>
+
+        </div>
+      </div>
+    </>
+  );
+}

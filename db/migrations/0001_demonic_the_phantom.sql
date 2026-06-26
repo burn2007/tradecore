@@ -1,0 +1,1 @@
+ALTER TABLE "stats_cache" ADD COLUMN "discipline_score" numeric(5, 2);
