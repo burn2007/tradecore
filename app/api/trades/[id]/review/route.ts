@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { trades } from "@/db/schema/trades";
 import { emotionLogs } from "@/db/schema/emotion_logs";
 import { ruleViolations } from "@/db/schema/rule_violations";
@@ -24,14 +24,6 @@ export async function PATCH(
 
   const { id } = await params;
 
-  const [trade] = await db
-    .select({ id: trades.id })
-    .from(trades)
-    .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
-    .limit(1);
-
-  if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
   let body: unknown;
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -44,35 +36,47 @@ export async function PATCH(
   const { postMood, postNote, violatedRuleIds } = parsed.data;
 
   console.time(`[trades/${id.slice(0, 8)}] review PATCH`);
-  const ops: Promise<unknown>[] = [];
+  const ok = await withUserContext(user.id, async (tx) => {
+    const [trade] = await tx
+      .select({ id: trades.id })
+      .from(trades)
+      .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
+      .limit(1);
 
-  if (postMood || postNote) {
-    // Upsert emotion log — insert if missing, update post fields if exists
-    ops.push(
-      db.insert(emotionLogs)
-        .values({ tradeId: id, userId: user.id, postMood, postNote })
-        .onConflictDoUpdate({
-          target: emotionLogs.tradeId,
-          set: {
-            postMood: postMood ?? undefined,
-            postNote: postNote ?? undefined,
-          },
-        })
-    );
-  }
+    if (!trade) return false;
 
-  if (violatedRuleIds.length > 0) {
-    ops.push(
-      db.insert(ruleViolations)
-        .values(violatedRuleIds.map((ruleId) => ({ tradeId: id, ruleId, userId: user.id })))
-        .onConflictDoNothing()
-    );
-  }
+    const ops: Promise<unknown>[] = [];
 
-  await Promise.all(ops);
+    if (postMood || postNote) {
+      ops.push(
+        tx.insert(emotionLogs)
+          .values({ tradeId: id, userId: user.id, postMood, postNote })
+          .onConflictDoUpdate({
+            target: emotionLogs.tradeId,
+            set: {
+              postMood: postMood ?? undefined,
+              postNote: postNote ?? undefined,
+            },
+          })
+      );
+    }
+
+    if (violatedRuleIds.length > 0) {
+      ops.push(
+        tx.insert(ruleViolations)
+          .values(violatedRuleIds.map((ruleId) => ({ tradeId: id, ruleId, userId: user.id })))
+          .onConflictDoNothing()
+      );
+    }
+
+    await Promise.all(ops);
+    return true;
+  });
+
   console.timeEnd(`[trades/${id.slice(0, 8)}] review PATCH`);
 
-  // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
+  if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   void refreshStatsForUser(user.id).catch(() => {/* best-effort */});
 
   return NextResponse.json({ ok: true });

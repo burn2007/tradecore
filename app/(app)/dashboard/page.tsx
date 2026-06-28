@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { users } from "@/db/schema/users";
 import { eq } from "drizzle-orm";
 import DashboardClient from "@/components/dashboard/DashboardClient";
@@ -16,11 +16,12 @@ export default async function DashboardPage() {
   let firstName = "Trader";
 
   try {
-    const [row] = await db
-      .select({ displayName: users.displayName })
-      .from(users)
-      .where(eq(users.id, authUser.id))
-      .limit(1);
+    const [row] = await withUserContext(authUser.id, (tx) =>
+      tx.select({ displayName: users.displayName })
+        .from(users)
+        .where(eq(users.id, authUser.id))
+        .limit(1)
+    );
 
     if (row?.displayName) {
       firstName = row.displayName.split(" ")[0];
@@ -33,5 +34,5 @@ export default async function DashboardPage() {
     // DB temporarily unavailable — use default
   }
 
-  return <DashboardClient firstName={firstName} />;
+  return <DashboardClient firstName={firstName} userId={authUser.id} />;
 }

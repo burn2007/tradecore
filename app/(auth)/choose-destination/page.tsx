@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { requireAdmin, NotAuthenticatedError } from "@/lib/admin-auth";
-import { db } from "@/lib/db";
+import { adminDb as db } from "@/lib/db";
 import { users } from "@/db/schema/users";
 import { eq } from "drizzle-orm";
 import ChooseDestinationClient from "@/components/auth/ChooseDestinationClient";

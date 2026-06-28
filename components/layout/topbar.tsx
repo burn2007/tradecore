@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/browser";
 import { useNavLock } from "./NavLockContext";
 import LogoMark from "./LogoMark";
@@ -84,6 +85,7 @@ function LiveIndicator() {
 export default function Topbar({ user, adminPath }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { locked } = useNavLock();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showCurrencyMenu, setShowCurrencyMenu] = useState(false);
@@ -134,7 +136,8 @@ export default function Topbar({ user, adminPath }: TopbarProps) {
     setShowUserMenu(false);
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push("/login");
+    queryClient.clear();
+    window.location.href = "/login";
   }
 
   return (

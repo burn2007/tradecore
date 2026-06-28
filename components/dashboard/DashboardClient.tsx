@@ -414,7 +414,7 @@ function TradeRow({ trade }: { trade: RecentTrade }) {
 
 /* ─────────────────────────────── Main ── */
 
-export default function DashboardClient({ firstName }: { firstName: string }) {
+export default function DashboardClient({ firstName, userId }: { firstName: string; userId: string }) {
   const qc                      = useQueryClient();
   const { formatPnl, currency } = useCurrency();
   const now                     = new Date();
@@ -436,7 +436,7 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
 
   /* ── Data ── */
   const { data, isLoading } = useQuery<DashboardData>({
-    queryKey: ["dashboard"],
+    queryKey: ["dashboard", userId],
     queryFn: () => fetch("/api/dashboard").then((r) => r.json()),
     staleTime: 60_000,
   });
@@ -445,16 +445,21 @@ export default function DashboardClient({ firstName }: { firstName: string }) {
   useEffect(() => {
     const sb = createClient();
     const ch = sb
-      .channel("dashboard-rt")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "trades" }, () => {
+      .channel(`dashboard-rt:${userId}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "trades",
+        filter: `user_id=eq.${userId}`,
+      }, () => {
         setTimeout(() => {
-          qc.invalidateQueries({ queryKey: ["dashboard"] });
-          qc.invalidateQueries({ queryKey: ["trades"] });
+          qc.invalidateQueries({ queryKey: ["dashboard", userId] });
+          qc.invalidateQueries({ queryKey: ["trades", userId] });
         }, 2500);
       })
       .subscribe();
     return () => { sb.removeChannel(ch); };
-  }, [qc]);
+  }, [qc, userId]);
 
   /* ── Milestone toasts ── */
   useEffect(() => {

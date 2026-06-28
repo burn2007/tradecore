@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { trades } from "@/db/schema/trades";
 import { emotionLogs } from "@/db/schema/emotion_logs";
 import { ruleViolations } from "@/db/schema/rule_violations";
@@ -23,39 +23,35 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
   const { id } = await params;
 
   console.time(`[trades/${id.slice(0, 8)}] GET`);
-  const [trade] = await db
-    .select()
-    .from(trades)
-    .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
-    .limit(1);
+  const result = await withUserContext(user.id, async (tx) => {
+    const [trade] = await tx
+      .select()
+      .from(trades)
+      .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
+      .limit(1);
 
-  if (!trade) {
-    console.timeEnd(`[trades/${id.slice(0, 8)}] GET`);
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+    if (!trade) return null;
 
-  // Parallel fetch: emotion log, violations with rule titles, screenshots
-  const [emotionLog, violations, screenshots] = await Promise.all([
-    db.select().from(emotionLogs).where(eq(emotionLogs.tradeId, id)).limit(1),
-    db
-      .select({
-        id:        ruleViolations.id,
-        ruleId:    ruleViolations.ruleId,
-        ruleTitle: rules.title,
-      })
-      .from(ruleViolations)
-      .leftJoin(rules, eq(rules.id, ruleViolations.ruleId))
-      .where(eq(ruleViolations.tradeId, id)),
-    db.select().from(tradeScreenshots).where(eq(tradeScreenshots.tradeId, id)),
-  ]);
+    const [emotionLog, violations, screenshots] = await Promise.all([
+      tx.select().from(emotionLogs).where(eq(emotionLogs.tradeId, id)).limit(1),
+      tx
+        .select({
+          id:        ruleViolations.id,
+          ruleId:    ruleViolations.ruleId,
+          ruleTitle: rules.title,
+        })
+        .from(ruleViolations)
+        .leftJoin(rules, eq(rules.id, ruleViolations.ruleId))
+        .where(eq(ruleViolations.tradeId, id)),
+      tx.select().from(tradeScreenshots).where(eq(tradeScreenshots.tradeId, id)),
+    ]);
+
+    return { trade, emotionLog: emotionLog[0] ?? null, violations, screenshots };
+  });
 
   console.timeEnd(`[trades/${id.slice(0, 8)}] GET`);
-  return NextResponse.json({
-    trade,
-    emotionLog: emotionLog[0] ?? null,
-    violations,
-    screenshots,
-  });
+  if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(result);
 }
 
 // ── PATCH /api/trades/[id] ───────────────────────────────────────────────────
@@ -80,14 +76,6 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-
-  // Confirm ownership
-  const [existing] = await db
-    .select({ id: trades.id })
-    .from(trades)
-    .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
-    .limit(1);
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   let body: unknown;
   try { body = await request.json(); }
@@ -118,14 +106,25 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   }
 
   console.time(`[trades/${id.slice(0, 8)}] PATCH`);
-  const [updated] = await db
-    .update(trades)
-    .set(updates)
-    .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
-    .returning();
+  const updated = await withUserContext(user.id, async (tx) => {
+    const [existing] = await tx
+      .select({ id: trades.id })
+      .from(trades)
+      .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
+      .limit(1);
+    if (!existing) return null;
+
+    const [row] = await tx
+      .update(trades)
+      .set(updates)
+      .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
+      .returning();
+    return row ?? null;
+  });
   console.timeEnd(`[trades/${id.slice(0, 8)}] PATCH`);
 
-  // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
+  if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   void refreshStatsForUser(user.id).catch(() => {});
 
   return NextResponse.json({ trade: updated });
@@ -140,15 +139,17 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   const { id } = await params;
 
   console.time(`[trades/${id.slice(0, 8)}] DELETE`);
-  const [deleted] = await db
-    .delete(trades)
-    .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
-    .returning({ id: trades.id });
+  const deleted = await withUserContext(user.id, async (tx) => {
+    const [row] = await tx
+      .delete(trades)
+      .where(and(eq(trades.id, id), eq(trades.userId, user.id)))
+      .returning({ id: trades.id });
+    return row ?? null;
+  });
   console.timeEnd(`[trades/${id.slice(0, 8)}] DELETE`);
 
   if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
   void refreshStatsForUser(user.id).catch(() => {});
 
   return NextResponse.json({ ok: true });

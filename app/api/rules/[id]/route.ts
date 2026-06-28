@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { rules } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 
@@ -47,11 +47,14 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  const [updated] = await db
-    .update(rules)
-    .set(updates)
-    .where(and(eq(rules.id, id), eq(rules.userId, user.id)))
-    .returning();
+  const updated = await withUserContext(user.id, async (tx) => {
+    const [row] = await tx
+      .update(rules)
+      .set(updates)
+      .where(and(eq(rules.id, id), eq(rules.userId, user.id)))
+      .returning();
+    return row ?? null;
+  });
 
   if (!updated) {
     return NextResponse.json({ error: "Rule not found" }, { status: 404 });
@@ -69,10 +72,13 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [deleted] = await db
-    .delete(rules)
-    .where(and(eq(rules.id, id), eq(rules.userId, user.id)))
-    .returning();
+  const deleted = await withUserContext(user.id, async (tx) => {
+    const [row] = await tx
+      .delete(rules)
+      .where(and(eq(rules.id, id), eq(rules.userId, user.id)))
+      .returning();
+    return row ?? null;
+  });
 
   if (!deleted) {
     return NextResponse.json({ error: "Rule not found" }, { status: 404 });

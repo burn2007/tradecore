@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { rules } from "@/db/schema/rules";
 import { setupTags } from "@/db/schema/setup_tags";
 import { eq, and } from "drizzle-orm";
@@ -20,10 +20,12 @@ export default async function NewTradePage() {
   let userTags: SetupTag[] = [];
 
   try {
-    [userRules, userTags] = await Promise.all([
-      db.select().from(rules).where(and(eq(rules.userId, user.id), eq(rules.isActive, true))),
-      db.select().from(setupTags).where(eq(setupTags.userId, user.id)),
-    ]);
+    [userRules, userTags] = await withUserContext(user.id, async (tx) => {
+      return Promise.all([
+        tx.select().from(rules).where(and(eq(rules.userId, user.id), eq(rules.isActive, true))),
+        tx.select().from(setupTags).where(eq(setupTags.userId, user.id)),
+      ]);
+    });
   } catch {
     // DB unavailable or tables not yet migrated — render with empty defaults
   }

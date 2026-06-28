@@ -50,10 +50,11 @@ const INPUT: React.CSSProperties = {
 /* ── Props ── */
 interface Props {
   setupTags: SetupTag[];
+  userId: string;
 }
 
 /* ── Component ── */
-export default function JournalClient({ setupTags }: Props) {
+export default function JournalClient({ setupTags, userId }: Props) {
   /* ── Filter state ── */
   const [from,      setFrom]      = useState(startOfMonth());
   const [to,        setTo]        = useState(today());
@@ -82,7 +83,7 @@ export default function JournalClient({ setupTags }: Props) {
   }, [from, to, symbol, setupTag, direction, session, offset]);
 
   const { data, isLoading, isError } = useQuery<ApiResponse>({
-    queryKey: ["trades", from, to, symbol, setupTag, direction, session, offset],
+    queryKey: ["trades", userId, from, to, symbol, setupTag, direction, session, offset],
     queryFn: async () => {
       const res = await fetch(buildUrl());
       if (!res.ok) throw new Error("Failed to fetch trades");

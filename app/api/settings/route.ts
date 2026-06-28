@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -44,11 +44,14 @@ export async function PATCH(request: NextRequest) {
   if (broker !== undefined)            updates.broker            = broker;
   if (marketsTraded !== undefined)     updates.marketsTraded     = marketsTraded;
 
-  const [updated] = await db
-    .update(users)
-    .set(updates)
-    .where(eq(users.id, user.id))
-    .returning();
+  const updated = await withUserContext(user.id, async (tx) => {
+    const [row] = await tx
+      .update(users)
+      .set(updates)
+      .where(eq(users.id, user.id))
+      .returning();
+    return row;
+  });
 
   return NextResponse.json({
     displayName:       updated.displayName,

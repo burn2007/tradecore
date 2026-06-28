@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { trades } from "@/db/schema/trades";
 import { emotionLogs } from "@/db/schema/emotion_logs";
 import { ruleViolations } from "@/db/schema/rule_violations";
@@ -60,43 +60,43 @@ export async function GET(request: NextRequest) {
 
   const where = and(...conditions);
 
-  // Fetch rows + total count in parallel
   console.time(`[trades] GET list user=${user.id.slice(0, 8)}`);
-  const [rows, [{ total }]] = await Promise.all([
-    db
-      .select({
-        id:          trades.id,
-        symbol:      trades.symbol,
-        direction:   trades.direction,
-        entryPrice:  trades.entryPrice,
-        exitPrice:   trades.exitPrice,
-        sizeLots:    trades.sizeLots,
-        pnlUsd:      trades.pnlUsd,
-        setupTag:    trades.setupTag,
-        session:     trades.session,
-        source:      trades.source,
-        isPaperTrade:trades.isPaperTrade,
-        entryAt:     trades.entryAt,
-        exitAt:      trades.exitAt,
-        createdAt:   trades.createdAt,
-        // Aggregates for compliance indicator
-        violationCount: sql<number>`cast(count(distinct ${ruleViolations.id}) as int)`,
-        hasEmotionLog:  sql<boolean>`bool_or(${emotionLogs.id} is not null)`,
-      })
-      .from(trades)
-      .leftJoin(ruleViolations, eq(ruleViolations.tradeId, trades.id))
-      .leftJoin(emotionLogs, eq(emotionLogs.tradeId, trades.id))
-      .where(where)
-      .groupBy(trades.id)
-      .orderBy(desc(trades.entryAt))
-      .limit(limit)
-      .offset(offset),
+  const [rows, [{ total }]] = await withUserContext(user.id, async (tx) => {
+    return Promise.all([
+      tx
+        .select({
+          id:          trades.id,
+          symbol:      trades.symbol,
+          direction:   trades.direction,
+          entryPrice:  trades.entryPrice,
+          exitPrice:   trades.exitPrice,
+          sizeLots:    trades.sizeLots,
+          pnlUsd:      trades.pnlUsd,
+          setupTag:    trades.setupTag,
+          session:     trades.session,
+          source:      trades.source,
+          isPaperTrade:trades.isPaperTrade,
+          entryAt:     trades.entryAt,
+          exitAt:      trades.exitAt,
+          createdAt:   trades.createdAt,
+          violationCount: sql<number>`cast(count(distinct ${ruleViolations.id}) as int)`,
+          hasEmotionLog:  sql<boolean>`bool_or(${emotionLogs.id} is not null)`,
+        })
+        .from(trades)
+        .leftJoin(ruleViolations, eq(ruleViolations.tradeId, trades.id))
+        .leftJoin(emotionLogs, eq(emotionLogs.tradeId, trades.id))
+        .where(where)
+        .groupBy(trades.id)
+        .orderBy(desc(trades.entryAt))
+        .limit(limit)
+        .offset(offset),
 
-    db
-      .select({ total: count() })
-      .from(trades)
-      .where(where),
-  ]);
+      tx
+        .select({ total: count() })
+        .from(trades)
+        .where(where),
+    ]);
+  });
 
   console.timeEnd(`[trades] GET list user=${user.id.slice(0, 8)}`);
   return NextResponse.json({ data: rows, total: Number(total), limit, offset });
@@ -121,52 +121,55 @@ export async function POST(request: NextRequest) {
   const session = detectSession(entryDate);
 
   console.time(`[trades] POST insert user=${user.id.slice(0, 8)}`);
-  const [trade] = await db.insert(trades).values({
-    userId:       user.id,
-    symbol:       d.symbol,
-    direction:    d.direction,
-    entryPrice:   d.entryPrice != null ? String(d.entryPrice) : undefined,
-    exitPrice:    d.exitPrice != null ? String(d.exitPrice) : undefined,
-    sizeLots:     d.sizeLots != null ? String(d.sizeLots) : undefined,
-    pnlUsd:       d.pnlUsd != null ? String(d.pnlUsd) : undefined,
-    stopLoss:     d.stopLoss != null ? String(d.stopLoss) : undefined,
-    takeProfit:   d.takeProfit != null ? String(d.takeProfit) : undefined,
-    setupTag:     d.setupTag,
-    session,
-    source:       "manual",
-    isPaperTrade: d.isPaperTrade ?? false,
-    entryAt:      entryDate,
-    exitAt:       d.exitAt ? new Date(d.exitAt) : undefined,
-  }).returning();
+  const trade = await withUserContext(user.id, async (tx) => {
+    const [t] = await tx.insert(trades).values({
+      userId:       user.id,
+      symbol:       d.symbol,
+      direction:    d.direction,
+      entryPrice:   d.entryPrice != null ? String(d.entryPrice) : undefined,
+      exitPrice:    d.exitPrice != null ? String(d.exitPrice) : undefined,
+      sizeLots:     d.sizeLots != null ? String(d.sizeLots) : undefined,
+      pnlUsd:       d.pnlUsd != null ? String(d.pnlUsd) : undefined,
+      stopLoss:     d.stopLoss != null ? String(d.stopLoss) : undefined,
+      takeProfit:   d.takeProfit != null ? String(d.takeProfit) : undefined,
+      setupTag:     d.setupTag,
+      session,
+      source:       "manual",
+      isPaperTrade: d.isPaperTrade ?? false,
+      entryAt:      entryDate,
+      exitAt:       d.exitAt ? new Date(d.exitAt) : undefined,
+    }).returning();
 
-  const insertions: Promise<unknown>[] = [];
+    const insertions: Promise<unknown>[] = [];
 
-  if (d.preMood || d.preNote) {
-    insertions.push(
-      db.insert(emotionLogs).values({
-        tradeId: trade.id,
-        userId:  user.id,
-        preMood: d.preMood,
-        preNote: d.preNote,
-      })
-    );
-  }
+    if (d.preMood || d.preNote) {
+      insertions.push(
+        tx.insert(emotionLogs).values({
+          tradeId: t.id,
+          userId:  user.id,
+          preMood: d.preMood,
+          preNote: d.preNote,
+        })
+      );
+    }
 
-  if (d.screenshotUrl && d.screenshotKey) {
-    insertions.push(
-      db.insert(tradeScreenshots).values({
-        tradeId: trade.id,
-        userId:  user.id,
-        r2Key:   d.screenshotKey,
-        r2Url:   d.screenshotUrl,
-      })
-    );
-  }
+    if (d.screenshotUrl && d.screenshotKey) {
+      insertions.push(
+        tx.insert(tradeScreenshots).values({
+          tradeId: t.id,
+          userId:  user.id,
+          r2Key:   d.screenshotKey,
+          r2Url:   d.screenshotUrl,
+        })
+      );
+    }
 
-  await Promise.all(insertions);
+    await Promise.all(insertions);
+    return t;
+  });
+
   console.timeEnd(`[trades] POST insert user=${user.id.slice(0, 8)}`);
 
-  // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
   void refreshStatsForUser(user.id).catch(() => {});
 
   return NextResponse.json({

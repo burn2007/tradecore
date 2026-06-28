@@ -5,7 +5,7 @@ import {
   NotAuthenticatedError,
   NotAuthorizedError,
 } from "@/lib/admin-auth";
-import { db } from "@/lib/db";
+import { adminDb as db } from "@/lib/db";
 import { users } from "@/db/schema/users";
 import { logAdminAction } from "@/lib/audit-log";
 import { createAdminClient } from "@/lib/supabase/admin";

@@ -672,9 +672,9 @@ function SignalAccuracy({ data }: { data: SignalRow[] }) {
 }
 
 // ── Main AnalyticsClient ───────────────────────────────────────────────────
-export default function AnalyticsClient() {
+export default function AnalyticsClient({ userId }: { userId: string }) {
   const { data, isLoading, isError } = useQuery<AnalyticsData>({
-    queryKey: ["analytics"],
+    queryKey: ["analytics", userId],
     queryFn: () => fetch("/api/analytics").then((r) => r.json()),
     staleTime: 60_000,
   });

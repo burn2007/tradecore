@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { adminDb as db } from "@/lib/db";
 import { adminAuditLog } from "@/db/schema/admin_audit_log";
 
 export interface LogAdminActionParams {

@@ -1,5 +1,6 @@
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { neon, neonConfig } from "@neondatabase/serverless";
+import { sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 
 // Next.js patches globalThis.fetch with a dedup/cache wrapper that breaks
@@ -15,6 +16,29 @@ neonConfig.fetchFunction = (url: RequestInfo | URL, init?: RequestInit) => {
   return realFetch(url, init);
 };
 
-const sql = neon(process.env.DATABASE_URL!);
+// Restricted application role — use DATABASE_URL_APP in production once the
+// `tradecore_app` role and RLS policies are created via scripts/migrate-rls.sql.
+// Falls back to DATABASE_URL (owner connection) if not configured, which keeps
+// development working and disables RLS enforcement (WHERE clauses still protect).
+const appSql = neon(process.env.DATABASE_URL_APP ?? process.env.DATABASE_URL!);
+export const db = drizzle(appSql, { schema });
 
-export const db = drizzle(sql, { schema });
+// Owner connection — has BYPASSRLS and full privileges.
+// Use for admin routes, auth flows, and system-level operations.
+const ownerSql = neon(process.env.DATABASE_URL!);
+export const adminDb = drizzle(ownerSql, { schema });
+
+type AppDb = NeonHttpDatabase<typeof schema>;
+
+// Wraps user-scoped queries in a transaction that sets app.current_user_id
+// so Postgres RLS policies can enforce per-user row isolation.
+// All queries inside fn() see only data belonging to userId.
+export async function withUserContext<T>(
+  userId: string,
+  fn: (tx: AppDb) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.current_user_id', ${userId}, false)`);
+    return fn(tx as unknown as AppDb);
+  });
+}

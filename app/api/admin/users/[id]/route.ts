@@ -6,7 +6,7 @@ import {
   NotAuthenticatedError,
   NotAuthorizedError,
 } from "@/lib/admin-auth";
-import { db } from "@/lib/db";
+import { adminDb as db } from "@/lib/db";
 import { users } from "@/db/schema/users";
 import { statsCache } from "@/db/schema/stats_cache";
 import { trades } from "@/db/schema/trades";

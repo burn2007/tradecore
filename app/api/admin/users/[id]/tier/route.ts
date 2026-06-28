@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { requireAdmin, NotAuthenticatedError, NotAuthorizedError } from "@/lib/admin-auth";
-import { db } from "@/lib/db";
+import { adminDb as db } from "@/lib/db";
 import { users } from "@/db/schema/users";
 import { logAdminAction } from "@/lib/audit-log";
 

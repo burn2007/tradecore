@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { setupTags } from "@/db/schema/setup_tags";
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
@@ -16,10 +16,12 @@ export default async function JournalPage() {
 
   let userTags: SetupTag[] = [];
   try {
-    userTags = await db.select().from(setupTags).where(eq(setupTags.userId, user.id));
+    userTags = await withUserContext(user.id, (tx) =>
+      tx.select().from(setupTags).where(eq(setupTags.userId, user.id))
+    );
   } catch {
     // DB unavailable — render with empty tags
   }
 
-  return <JournalClient setupTags={userTags} />;
+  return <JournalClient setupTags={userTags} userId={user.id} />;
 }

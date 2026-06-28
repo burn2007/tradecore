@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { count, desc, eq } from "drizzle-orm";
 import { requireAdmin, NotAuthenticatedError, NotAuthorizedError } from "@/lib/admin-auth";
-import { db } from "@/lib/db";
+import { adminDb as db } from "@/lib/db";
 import { adminAuditLog } from "@/db/schema/admin_audit_log";
 import { users } from "@/db/schema/users";
 

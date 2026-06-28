@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { rules } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
 import RulesClient from "@/components/settings/RulesClient";
@@ -18,11 +18,12 @@ export default async function RulesPage() {
   } = await supabase.auth.getUser();
   if (!authUser) redirect("/login");
 
-  const userRules = await db
-    .select()
-    .from(rules)
-    .where(eq(rules.userId, authUser.id))
-    .orderBy(asc(rules.sortOrder), asc(rules.createdAt));
+  const userRules = await withUserContext(authUser.id, (tx) =>
+    tx.select()
+      .from(rules)
+      .where(eq(rules.userId, authUser.id))
+      .orderBy(asc(rules.sortOrder), asc(rules.createdAt))
+  );
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", paddingBottom: 80 }}>

@@ -5,8 +5,6 @@ const withPWA = withPWAInit({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
   register: true,
-  cacheOnFrontEndNav: true,
-  aggressiveFrontEndNavCaching: true,
   reloadOnOnline: true,
   workboxOptions: {
     runtimeCaching: [
@@ -34,58 +32,8 @@ const withPWA = withPWAInit({
           },
         },
       },
-      // API: /api/trades — StaleWhileRevalidate, 30 minute expiration
-      {
-        urlPattern: /\/api\/trades(\?.*)?$/i,
-        handler: "StaleWhileRevalidate",
-        method: "GET",
-        options: {
-          cacheName: "api-trades",
-          expiration: {
-            maxEntries: 32,
-            maxAgeSeconds: 60 * 30, // 30 minutes
-          },
-        },
-      },
-      // API: /api/dashboard — StaleWhileRevalidate, 30 minute expiration
-      {
-        urlPattern: /\/api\/dashboard(\?.*)?$/i,
-        handler: "StaleWhileRevalidate",
-        method: "GET",
-        options: {
-          cacheName: "api-dashboard",
-          expiration: {
-            maxEntries: 16,
-            maxAgeSeconds: 60 * 30, // 30 minutes
-          },
-        },
-      },
-      // API: /api/analytics — StaleWhileRevalidate, 30 minute expiration
-      {
-        urlPattern: /\/api\/analytics(\?.*)?$/i,
-        handler: "StaleWhileRevalidate",
-        method: "GET",
-        options: {
-          cacheName: "api-analytics",
-          expiration: {
-            maxEntries: 16,
-            maxAgeSeconds: 60 * 30, // 30 minutes
-          },
-        },
-      },
-      // API: /api/rules — StaleWhileRevalidate, 30 minute expiration
-      {
-        urlPattern: /\/api\/rules(\?.*)?$/i,
-        handler: "StaleWhileRevalidate",
-        method: "GET",
-        options: {
-          cacheName: "api-rules",
-          expiration: {
-            maxEntries: 16,
-            maxAgeSeconds: 60 * 30, // 30 minutes
-          },
-        },
-      },
+      // Authenticated API routes are intentionally excluded — serving
+      // another user's cached response is a critical data-isolation bug.
     ],
   },
 });

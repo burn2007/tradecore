@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { rules } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
 
@@ -19,11 +19,12 @@ export async function GET(_request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const data = await db
-    .select()
-    .from(rules)
-    .where(eq(rules.userId, user.id))
-    .orderBy(asc(rules.sortOrder), asc(rules.createdAt));
+  const data = await withUserContext(user.id, (tx) =>
+    tx.select()
+      .from(rules)
+      .where(eq(rules.userId, user.id))
+      .orderBy(asc(rules.sortOrder), asc(rules.createdAt))
+  );
 
   return NextResponse.json({ data });
 }
@@ -49,16 +50,17 @@ export async function POST(request: NextRequest) {
 
   const { title, description, sortOrder } = parsed.data;
 
-  const [rule] = await db
-    .insert(rules)
-    .values({
-      userId:      user.id,
-      title,
-      description: description ?? null,
-      sortOrder:   sortOrder ?? 0,
-      isActive:    true,
-    })
-    .returning();
+  const [rule] = await withUserContext(user.id, (tx) =>
+    tx.insert(rules)
+      .values({
+        userId:      user.id,
+        title,
+        description: description ?? null,
+        sortOrder:   sortOrder ?? 0,
+        isActive:    true,
+      })
+      .returning()
+  );
 
   return NextResponse.json(rule, { status: 201 });
 }

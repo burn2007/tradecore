@@ -307,14 +307,14 @@ function DeleteConfirm({ tradeId, onClose, onDeleted }: { tradeId: string; onClo
 }
 
 /* ── Main Component ── */
-export default function TradeDetail({ id }: { id: string }) {
+export default function TradeDetail({ id, userId }: { id: string; userId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showEdit,   setShowEdit]   = useState(false);
   const [showDelete, setShowDelete] = useState(false);
 
   const { data, isLoading, isError } = useQuery<TradeDetailData>({
-    queryKey: ["trade", id],
+    queryKey: ["trade", userId, id],
     queryFn: async () => {
       const res = await fetch(`/api/trades/${id}`);
       if (res.status === 404) throw new Error("not-found");
@@ -346,12 +346,12 @@ export default function TradeDetail({ id }: { id: string }) {
   const pnlColor = pnl === null ? "#6B8AAA" : pnl >= 0 ? "#50E3B8" : "#F07C7C";
 
   function handleSaved() {
-    queryClient.invalidateQueries({ queryKey: ["trade", id] });
-    queryClient.invalidateQueries({ queryKey: ["trades"] });
+    queryClient.invalidateQueries({ queryKey: ["trade", userId, id] });
+    queryClient.invalidateQueries({ queryKey: ["trades", userId] });
     setShowEdit(false);
   }
   function handleDeleted() {
-    queryClient.invalidateQueries({ queryKey: ["trades"] });
+    queryClient.invalidateQueries({ queryKey: ["trades", userId] });
     router.push("/journal");
   }
 

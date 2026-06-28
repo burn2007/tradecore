@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import SettingsClient from "@/components/settings/SettingsClient";
@@ -18,11 +18,9 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   if (!authUser) redirect("/login");
 
-  const [neonUser = null] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, authUser.id))
-    .limit(1);
+  const [neonUser = null] = await withUserContext(authUser.id, (tx) =>
+    tx.select().from(users).where(eq(users.id, authUser.id)).limit(1)
+  );
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", paddingBottom: 80 }}>

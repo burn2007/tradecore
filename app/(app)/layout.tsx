@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import Shell from "@/components/layout/shell";
@@ -13,11 +13,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   if (!authUser) redirect("/login");
 
-  const [neonUser = null] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, authUser.id))
-    .limit(1);
+  const [neonUser = null] = await withUserContext(authUser.id, (tx) =>
+    tx.select().from(users).where(eq(users.id, authUser.id)).limit(1)
+  );
 
   // Secondary soft-delete guard — proxy.ts is the primary gate, but this
   // layout runs after the middleware rewrite and provides defense-in-depth.

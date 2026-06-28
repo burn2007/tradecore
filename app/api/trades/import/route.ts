@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { withUserContext } from "@/lib/db";
 import { trades } from "@/db/schema/trades";
 import { refreshStatsForUser } from "@/lib/refresh-stats";
 
@@ -81,12 +81,12 @@ export async function POST(request: NextRequest) {
     }));
 
     try {
-      // onConflictDoNothing targets the (user_id, broker_trade_id) unique constraint
-      const inserted = await db
-        .insert(trades)
-        .values(rows)
-        .onConflictDoNothing()
-        .returning({ id: trades.id });
+      const inserted = await withUserContext(user.id, (tx) =>
+        tx.insert(trades)
+          .values(rows)
+          .onConflictDoNothing()
+          .returning({ id: trades.id })
+      );
 
       totalImported  += inserted.length;
       totalDuplicates += batch.length - inserted.length;
@@ -96,7 +96,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fire-and-forget: refresh stats directly in-process (no HTTP hop)
   void refreshStatsForUser(user.id).catch(() => {});
 
   return NextResponse.json({
