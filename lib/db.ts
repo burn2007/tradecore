@@ -2,12 +2,13 @@ import { drizzle, type NeonDatabase } from "drizzle-orm/neon-serverless";
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import { sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
+import ws from "ws";
 
 // Pool uses WebSockets (not stateless HTTP), which is required for transaction
-// support. In Node.js environments (Vercel serverless) below Node 22 there is
-// no native WebSocket, so we provide the `ws` package as the constructor.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-neonConfig.webSocketConstructor = require("ws");
+// support. ws is listed in serverExternalPackages so webpack does not bundle
+// it — Node.js loads it from node_modules at runtime with full native support
+// (bufferutil masking). Must be set before any Pool is created.
+neonConfig.webSocketConstructor = ws;
 
 // Restricted application role — use DATABASE_URL_APP in production once the
 // `tradecore_app` role and RLS policies are created via scripts/migrate-rls.sql.

@@ -46,7 +46,7 @@ const nextConfig: NextConfig = {
   // When bundled it uses a browser-compat fetch shim that breaks in Node.js
   // and causes UND_ERR_CONNECT_TIMEOUT. Marking it external lets it run as
   // a native Node module using Node's built-in fetch instead.
-  serverExternalPackages: ["@neondatabase/serverless"],
+  serverExternalPackages: ["@neondatabase/serverless", "ws"],
   images: {
     remotePatterns: [
       {
