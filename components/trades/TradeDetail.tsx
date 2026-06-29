@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCurrency } from "@/hooks/useCurrency";
 
@@ -306,6 +307,19 @@ function DeleteConfirm({ tradeId, onClose, onDeleted }: { tradeId: string; onClo
   );
 }
 
+/* ── Skeleton helper ── */
+function Skel({ w = "100%", h = 16, r = 6, style }: { w?: string | number; h?: number; r?: number; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: r,
+      background: "linear-gradient(90deg, #111C2E 25%, #1A2640 50%, #111C2E 75%)",
+      backgroundSize: "200% 100%",
+      animation: "tc-shimmer 1.6s ease-in-out infinite",
+      ...style,
+    }} />
+  );
+}
+
 /* ── Main Component ── */
 export default function TradeDetail({ id, userId }: { id: string; userId: string }) {
   const router = useRouter();
@@ -321,11 +335,45 @@ export default function TradeDetail({ id, userId }: { id: string; userId: string
       if (!res.ok) throw new Error("fetch-failed");
       return res.json();
     },
+    staleTime: 60_000,
   });
 
   if (isLoading) return (
-    <div style={{ maxWidth: 520, margin: "0 auto", paddingTop: 40, textAlign: "center", color: "#4B6080", fontSize: 13 }}>
-      Loading trade…
+    <div style={{ maxWidth: 520, margin: "0 auto", paddingBottom: 60 }}>
+      <style>{`@keyframes tc-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
+      {/* Back link placeholder */}
+      <Skel w={60} h={12} r={3} style={{ marginBottom: 14 }} />
+      {/* Header card */}
+      <div style={CARD}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <Skel w={80} h={20} r={4} />
+          <Skel w={48} h={20} r={5} />
+        </div>
+        <Skel w={130} h={28} r={4} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 16 }}>
+          {[0,1,2,3,4,5].map((i) => (
+            <div key={i}>
+              <Skel w="55%" h={9} r={2} />
+              <div style={{ marginTop: 4 }}><Skel h={13} r={3} /></div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Screenshot card */}
+      <div style={CARD}>
+        <Skel w={90} h={9} r={2} style={{ marginBottom: 8 }} />
+        <Skel h={160} r={6} />
+      </div>
+      {/* Emotion card */}
+      <div style={CARD}>
+        <Skel w={90} h={9} r={2} style={{ marginBottom: 10 }} />
+        <Skel h={44} r={6} />
+      </div>
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8 }}>
+        <Skel w="50%" h={44} r={8} />
+        <Skel w="50%" h={44} r={8} />
+      </div>
     </div>
   );
 
@@ -421,9 +469,16 @@ export default function TradeDetail({ id, userId }: { id: string; userId: string
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {screenshots.map((s) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={s.id} src={s.r2Url} alt="Chart screenshot"
-                style={{ width: "100%", borderRadius: 8, display: "block" }} />
+              <Image
+                key={s.id}
+                src={s.r2Url}
+                alt="Chart screenshot"
+                width={1920}
+                height={1080}
+                loading="lazy"
+                sizes="(max-width: 520px) 100vw, 520px"
+                style={{ width: "100%", height: "auto", borderRadius: 8, display: "block" }}
+              />
             ))}
           </div>
         )}

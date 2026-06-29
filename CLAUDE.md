@@ -16,6 +16,15 @@ Free tier complete (Prompts 1-13, 15-17). Prompt 14 deferred. Admin panel, soft-
 ## Deployment
 Hosted on Vercel via GitHub, env vars added manually in Vercel dashboard, production build runs full strict TypeScript checking unlike local dev.
 
+## Recent Changes
+
+### 2026-06-29 — UI performance pass (TradeDetail only)
+File changed: `components/trades/TradeDetail.tsx`
+- Replaced bare "Loading trade…" text with shimmer skeleton cards (header, screenshot, emotion, action buttons) matching Dusk card dimensions (`#111C2E`, `borderRadius: 11`, same `tc-shimmer` animation as Dashboard)
+- Added `staleTime: 60_000` to the trade detail query (matches Dashboard/Analytics)
+- Converted screenshot `<img>` tags to `next/image` with `loading="lazy"`, `sizes="(max-width: 520px) 100vw, 520px"`, and responsive CSS — `next.config.ts` `remotePatterns` for `**.r2.cloudflarestorage.com` was already in place
+- `lib/db.ts` and all database/driver/transaction code untouched
+
 ## Reference Files
 - Full design tokens, env var list, and folder structure: see docs/reference.md — read that file directly when you need these details, do not assume they're in this file.
 - For full historical decisions and fixed-issue history, see docs/changelog.md
