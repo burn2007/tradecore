@@ -2,6 +2,29 @@
 
 ## Prompts Completed
 
+### Hotfix — `stats_cache` never written after neon-http revert (2026-06-29) ✅
+
+**Root cause confirmed via live DB query:** The `withUserContext` passthrough introduced by the `"revert: neon-http driver"` commit (`8130ec2`) returns the same `db` singleton it receives — identical reference to `defaultDb`. `refreshStatsForUser` contained a recursion guard (`if (dbClient === defaultDb)`) designed for when `withUserContext` passed a real transaction object. After the revert, the guard's condition was permanently true, causing infinite synchronous recursion (`refreshStatsForUser → withUserContext → refreshStatsForUser → …`) that blew the call stack. The resulting `RangeError: Maximum call stack size exceeded` was silently swallowed by `.catch(() => {})` at every fire-and-forget call site, so `stats_cache` was never written for any user since the revert. Trade inserts, equity curve, recent trades, and session edge all appeared correct (live queries) while the header count, all four KPI cards, and the discipline score showed zeros/dashes (they read from `stats_cache`).
+
+**Fix:**
+- **`lib/refresh-stats.ts`**: Removed the 8-line recursion guard block entirely (`if (dbClient === defaultDb) { return withUserContext(...) }`). Removed the now-unused `withUserContext` import. `refreshStatsForUser` now calls `computeUserStats(userId, dbClient)` directly with no recursive self-call of any kind. Updated JSDoc example to use the new logging catch pattern.
+- **`app/api/trades/route.ts`**: `.catch(() => {})` → `.catch((err) => console.error("[refresh-stats] failed:", err))` (POST create).
+- **`app/api/trades/[id]/route.ts`**: Same — PATCH (update) and DELETE.
+- **`app/api/trades/[id]/review/route.ts`**: Same — PATCH review.
+- **`app/api/trades/import/route.ts`**: Same — POST import.
+
+**Verified:** `tsc --noEmit` → zero errors ✅. Backfilled all three affected users; `stats_cache` rows confirmed:
+
+| User | total_trades | win_rate | total_pnl | discipline_score |
+|---|---|---|---|---|
+| markhandsomeak@gmail.com | 1 | 100.00 | 367.82 | 100.00 |
+| jeddidiahjones98@gmail.com | 1 | 100.00 | 1000.00 | 100.00 |
+| uptontechorg@gmail.com | 3 | 66.67 | −11008.00 | 87.00 |
+
+Branch: `fix/stats-cache-recursion`.
+
+---
+
 ### Prompt 22 — Auth flows: forgot password, reset password, email verification ✅
 
 **Part 1 — Google OAuth (investigation only, no code changed)**

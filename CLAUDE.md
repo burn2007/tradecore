@@ -16,7 +16,18 @@ Free tier complete (Prompts 1-13, 15-17). Prompt 14 deferred. Admin panel, soft-
 ## Deployment
 Hosted on Vercel via GitHub, env vars added manually in Vercel dashboard, production build runs full strict TypeScript checking unlike local dev.
 
+## Architecture note — `withUserContext` is a passthrough
+`lib/db.ts`'s `withUserContext` currently just calls `fn(db)` — no transaction, no RLS session variables (neon-http doesn't support stateful sessions). Data isolation relies on explicit `WHERE user_id = ...` clauses. Do NOT write code that relies on `withUserContext` passing a different `db` reference from the module-level `db` singleton — it doesn't.
+
 ## Recent Changes
+
+### 2026-06-29 — Hotfix: stats_cache never written (infinite recursion in refresh-stats)
+Files changed: `lib/refresh-stats.ts`, `app/api/trades/route.ts`, `app/api/trades/[id]/route.ts`, `app/api/trades/[id]/review/route.ts`, `app/api/trades/import/route.ts`
+- Removed dead recursion guard from `refreshStatsForUser` — the `if (dbClient === defaultDb)` block called `withUserContext`, which (after the neon-http revert) returns the same `db` reference, making the guard permanently true and causing infinite synchronous recursion silently caught by `.catch(() => {})`
+- `refreshStatsForUser` now calls `computeUserStats` directly with no self-call
+- All five `.catch(() => {})` fire-and-forget call sites updated to `.catch((err) => console.error("[refresh-stats] failed:", err))` so failures surface in server logs
+- Backfilled `stats_cache` for all three affected real users; `tsc --noEmit` → zero errors
+- Branch: `fix/stats-cache-recursion`
 
 ### 2026-06-29 — Navigation prefetch + instant transitions
 Files changed: `components/layout/sidebar.tsx`, `components/layout/topbar.tsx`, `components/layout/BottomTabBar.tsx`, `components/layout/shell.tsx`, `components/trades/JournalClient.tsx`, `components/dashboard/DashboardClient.tsx`
