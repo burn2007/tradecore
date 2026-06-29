@@ -170,7 +170,7 @@ export async function POST(request: NextRequest) {
 
   console.timeEnd(`[trades] POST insert user=${user.id.slice(0, 8)}`);
 
-  void refreshStatsForUser(user.id).catch(() => {});
+  void refreshStatsForUser(user.id).catch((err) => console.error("[refresh-stats] failed:", err));
 
   return NextResponse.json({
     id:        trade.id,

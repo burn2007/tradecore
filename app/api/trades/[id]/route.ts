@@ -125,7 +125,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  void refreshStatsForUser(user.id).catch(() => {});
+  void refreshStatsForUser(user.id).catch((err) => console.error("[refresh-stats] failed:", err));
 
   return NextResponse.json({ trade: updated });
 }
@@ -150,7 +150,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
 
   if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  void refreshStatsForUser(user.id).catch(() => {});
+  void refreshStatsForUser(user.id).catch((err) => console.error("[refresh-stats] failed:", err));
 
   return NextResponse.json({ ok: true });
 }

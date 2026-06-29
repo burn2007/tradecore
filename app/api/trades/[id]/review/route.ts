@@ -77,7 +77,7 @@ export async function PATCH(
 
   if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  void refreshStatsForUser(user.id).catch(() => {/* best-effort */});
+  void refreshStatsForUser(user.id).catch((err) => console.error("[refresh-stats] failed:", err));
 
   return NextResponse.json({ ok: true });
 }

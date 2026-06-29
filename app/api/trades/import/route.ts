@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  void refreshStatsForUser(user.id).catch(() => {});
+  void refreshStatsForUser(user.id).catch((err) => console.error("[refresh-stats] failed:", err));
 
   return NextResponse.json({
     imported:           totalImported,

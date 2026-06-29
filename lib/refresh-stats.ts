@@ -13,7 +13,7 @@
  */
 
 import { eq, and, sql } from "drizzle-orm";
-import { db as defaultDb, withUserContext } from "@/lib/db";
+import { db as defaultDb } from "@/lib/db";
 import { statsCache }     from "@/db/schema/stats_cache";
 import { userMilestones } from "@/db/schema/user_milestones";
 import { trades }         from "@/db/schema/trades";
@@ -47,20 +47,12 @@ export interface RefreshResult {
  * Computes stats for `userId`, upserts stats_cache, checks milestone
  * conditions, and returns any newly achieved milestones.
  *
- * Safe to call fire-and-forget: `void refreshStatsForUser(id).catch(() => {})`
+ * Safe to call fire-and-forget: `void refreshStatsForUser(id).catch((err) => console.error('[refresh-stats] failed:', err))`
  */
 export async function refreshStatsForUser(
   userId:   string,
   dbClient: DrizzleClient = defaultDb,
 ): Promise<RefreshResult> {
-  // When called without an explicit client (fire-and-forget from API routes),
-  // wrap in user context so RLS policies are satisfied on the restricted role.
-  if (dbClient === defaultDb) {
-    return withUserContext(userId, (tx) =>
-      refreshStatsForUser(userId, tx as unknown as DrizzleClient)
-    );
-  }
-
   console.time(`[refresh-stats] total user=${userId.slice(0, 8)}`);
 
   /* ── 1. Compute fresh stats ── */
