@@ -3,8 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavLock } from "./NavLockContext";
 import type { User } from "@/db/schema/users";
+
+function smStartOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function smToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 interface SidebarProps {
   user: User | null;
@@ -119,6 +129,27 @@ export default function Sidebar({ user }: SidebarProps) {
   const { locked } = useNavLock();
   const [tooltip, setTooltip] = useState<string | null>(null);
   const initials = getInitials(user?.displayName, user?.email);
+  const qc = useQueryClient();
+  const uid = user?.id ?? "";
+
+  function prefetchNav(href: string | null) {
+    if (!href || !uid || locked) return;
+    if (href === "/journal") {
+      const from = smStartOfMonth();
+      const to = smToday();
+      void qc.prefetchQuery({
+        queryKey: ["trades", uid, from, to, "", "", "", "", 0],
+        queryFn: () => fetch(`/api/trades?from=${from}&to=${to}&limit=50&offset=0`).then((r) => r.json()),
+        staleTime: 30_000,
+      });
+    } else if (href === "/analytics") {
+      void qc.prefetchQuery({
+        queryKey: ["analytics", uid],
+        queryFn: () => fetch("/api/analytics").then((r) => r.json()),
+        staleTime: 60_000,
+      });
+    }
+  }
 
   return (
     <nav
@@ -161,7 +192,7 @@ export default function Sidebar({ user }: SidebarProps) {
           <div
             key={label}
             style={{ position: "relative" }}
-            onMouseEnter={() => setTooltip(label)}
+            onMouseEnter={() => { setTooltip(label); prefetchNav(href ?? null); }}
             onMouseLeave={() => setTooltip(null)}
           >
             {href ? (

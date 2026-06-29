@@ -21,6 +21,15 @@ const NAV_ITEMS = [
   { href: "/settings",  label: "Settings"  },
 ] as const;
 
+function tbStartOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function tbToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const CURRENCIES = ["USD", "NGN", "GHS", "KES", "ZAR", "EUR", "GBP"] as const;
 
 function getInitials(displayName?: string | null, email?: string | null): string {
@@ -87,6 +96,26 @@ export default function Topbar({ user, adminPath }: TopbarProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { locked } = useNavLock();
+  const uid = user?.id ?? "";
+
+  function prefetchNav(href: string) {
+    if (!uid || locked) return;
+    if (href === "/journal") {
+      const from = tbStartOfMonth();
+      const to = tbToday();
+      void queryClient.prefetchQuery({
+        queryKey: ["trades", uid, from, to, "", "", "", "", 0],
+        queryFn: () => fetch(`/api/trades?from=${from}&to=${to}&limit=50&offset=0`).then((r) => r.json()),
+        staleTime: 30_000,
+      });
+    } else if (href === "/analytics") {
+      void queryClient.prefetchQuery({
+        queryKey: ["analytics", uid],
+        queryFn: () => fetch("/api/analytics").then((r) => r.json()),
+        staleTime: 60_000,
+      });
+    }
+  }
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showCurrencyMenu, setShowCurrencyMenu] = useState(false);
   const [userMenuHover, setUserMenuHover] = useState<string | null>(null);
@@ -200,6 +229,7 @@ export default function Topbar({ user, adminPath }: TopbarProps) {
               tabIndex={locked ? -1 : undefined}
               aria-disabled={locked}
               onClick={(e) => { if (locked) e.preventDefault(); }}
+              onMouseEnter={() => prefetchNav(href)}
               style={{
                 fontSize: 11,
                 fontWeight: isActive ? 500 : 400,

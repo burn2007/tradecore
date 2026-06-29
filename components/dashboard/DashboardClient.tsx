@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -158,7 +157,16 @@ function AccentBar({ color, taller = false }: { color: string; taller?: boolean 
   );
 }
 
-function spawnRipple(e: React.MouseEvent<HTMLDivElement>, accent: string) {
+function dcStartOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function dcToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function spawnRipple(e: React.MouseEvent<HTMLElement>, accent: string) {
   const rect = e.currentTarget.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
@@ -188,31 +196,21 @@ function KpiCard({
   accent: string; valueColor?: string; loading: boolean;
   bottom?: React.ReactNode; href?: string;
 }) {
-  const router = useRouter();
   const [hovered, setHovered] = useState(false);
 
-  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
-    spawnRipple(e, accent);
-    if (href) router.push(href);
-  }
+  const cardStyle: React.CSSProperties = {
+    backgroundColor: "#111C2E",
+    border: `1px solid ${hovered ? "#2A3A54" : "#1A2640"}`,
+    borderRadius: 11, padding: "12px 14px",
+    position: "relative", overflow: "hidden",
+    cursor: "pointer",
+    transform: hovered ? "translateY(-3px)" : "translateY(0)",
+    boxShadow: hovered ? "0 8px 20px -8px rgba(0,0,0,.5)" : "none",
+    transition: "transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
+  };
 
-  return (
-    <div
-      className="tc-kpi-card"
-      onClick={handleClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        backgroundColor: "#111C2E",
-        border: `1px solid ${hovered ? "#2A3A54" : "#1A2640"}`,
-        borderRadius: 11, padding: "12px 14px",
-        position: "relative", overflow: "hidden",
-        cursor: "pointer",
-        transform: hovered ? "translateY(-3px)" : "translateY(0)",
-        boxShadow: hovered ? "0 8px 20px -8px rgba(0,0,0,.5)" : "none",
-        transition: "transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
-      }}
-    >
+  const inner = (
+    <>
       <AccentBar color={accent} taller={hovered} />
       <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2E4060", margin: "0 0 6px" }}>
         {label}
@@ -231,13 +229,37 @@ function KpiCard({
           <p style={{ fontSize: 9, color: "#253650", margin: 0 }}>{sub}</p>
         </>
       )}
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="tc-kpi-card"
+        onClick={(e) => spawnRipple(e, accent)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{ ...cardStyle, display: "block", textDecoration: "none" }}
+      >
+        {inner}
+      </Link>
+    );
+  }
+  return (
+    <div
+      className="tc-kpi-card"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={cardStyle}
+    >
+      {inner}
     </div>
   );
 }
 
 /* Compliance card */
 function ComplianceCard({ compliance, hasData, loading }: { compliance: number; hasData: boolean; loading: boolean }) {
-  const router = useRouter();
   const [hovered, setHovered] = useState(false);
 
   const color = !hasData ? "#2E4060"
@@ -245,15 +267,11 @@ function ComplianceCard({ compliance, hasData, loading }: { compliance: number; 
     : compliance >= 50 ? "#E2B96F"
     : "#F07C7C";
 
-  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
-    spawnRipple(e, color);
-    router.push("/settings/rules");
-  }
-
   return (
-    <div
+    <Link
+      href="/settings/rules"
       className="tc-kpi-card"
-      onClick={handleClick}
+      onClick={(e) => spawnRipple(e, color)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -265,6 +283,8 @@ function ComplianceCard({ compliance, hasData, loading }: { compliance: number; 
         transform: hovered ? "translateY(-3px)" : "translateY(0)",
         boxShadow: hovered ? "0 8px 20px -8px rgba(0,0,0,.5)" : "none",
         transition: "transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
+        display: "block",
+        textDecoration: "none",
       }}
     >
       <AccentBar color={color} taller={hovered} />
@@ -292,7 +312,7 @@ function ComplianceCard({ compliance, hasData, loading }: { compliance: number; 
           </div>
         </>
       )}
-    </div>
+    </Link>
   );
 }
 
@@ -426,6 +446,7 @@ export default function DashboardClient({ firstName, userId }: { firstName: stri
 
   /* ── Discipline ring pulse on click ── */
   const ringWrapperRef = useRef<HTMLDivElement>(null);
+  const didPrefetchJournal = useRef(false);
   function handleDisciplineClick() {
     const el = ringWrapperRef.current;
     if (!el) return;
@@ -440,6 +461,20 @@ export default function DashboardClient({ firstName, userId }: { firstName: stri
     queryFn: () => fetch("/api/dashboard").then((r) => r.json()),
     staleTime: 60_000,
   });
+
+  /* ── Background prefetch journal after dashboard loads ── */
+  useEffect(() => {
+    if (data && !didPrefetchJournal.current) {
+      didPrefetchJournal.current = true;
+      const from = dcStartOfMonth();
+      const to = dcToday();
+      void qc.prefetchQuery({
+        queryKey: ["trades", userId, from, to, "", "", "", "", 0],
+        queryFn: () => fetch(`/api/trades?from=${from}&to=${to}&limit=50&offset=0`).then((r) => r.json()),
+        staleTime: 30_000,
+      });
+    }
+  }, [data, userId, qc]);
 
   /* ── Supabase Realtime ── */
   useEffect(() => {

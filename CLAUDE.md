@@ -18,6 +18,16 @@ Hosted on Vercel via GitHub, env vars added manually in Vercel dashboard, produc
 
 ## Recent Changes
 
+### 2026-06-29 — Navigation prefetch + instant transitions
+Files changed: `components/layout/sidebar.tsx`, `components/layout/topbar.tsx`, `components/layout/BottomTabBar.tsx`, `components/layout/shell.tsx`, `components/trades/JournalClient.tsx`, `components/dashboard/DashboardClient.tsx`
+- Added `queryClient.prefetchQuery` on `mouseenter` (desktop) and `touchstart` (mobile) for Journal and Analytics in Sidebar, Topbar, and BottomTabBar — uses exact same query keys/fns as destination components so cache entries are shared
+- Dashboard fires a one-shot background prefetch for the default Journal query once its own data first resolves (`didPrefetchJournal` ref prevents repeat calls)
+- `BottomTabBar` now receives `userId` prop (from Shell via `user?.id`); all three nav components guard against locked nav and empty userId before prefetching
+- Added `placeholderData: keepPreviousData` to JournalClient query — filter/pagination changes now show stale results while the next fetch loads instead of clearing to skeleton
+- Converted `KpiCard` and `ComplianceCard` in DashboardClient from `router.push()` onClick to `<Link>` wrappers; ripple effect preserved via `onClick` on the Link; removed unused `useRouter` import
+- All nav links in Sidebar, Topbar, BottomTabBar already used `<Link>` (confirmed); admin switcher stays as plain `<a>` (external path)
+- `lib/db.ts` and all database/driver/transaction code untouched
+
 ### 2026-06-29 — UI performance pass (TradeDetail only)
 File changed: `components/trades/TradeDetail.tsx`
 - Replaced bare "Loading trade…" text with shimmer skeleton cards (header, screenshot, emotion, action buttons) matching Dusk card dimensions (`#111C2E`, `borderRadius: 11`, same `tc-shimmer` animation as Dashboard)

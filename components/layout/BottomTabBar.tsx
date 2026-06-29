@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavLock } from "./NavLockContext";
+
+function btbStartOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function btbToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /* ── Custom SVG icons at 20px ── */
 
@@ -74,9 +84,29 @@ const TABS = [
   { href: "/settings",  label: "Settings",  Icon: SettingsIcon  },
 ] as const;
 
-export default function BottomTabBar() {
+export default function BottomTabBar({ userId }: { userId: string }) {
   const pathname = usePathname();
   const { locked } = useNavLock();
+  const qc = useQueryClient();
+
+  function prefetchNav(href: string) {
+    if (!userId || locked) return;
+    if (href === "/journal") {
+      const from = btbStartOfMonth();
+      const to = btbToday();
+      void qc.prefetchQuery({
+        queryKey: ["trades", userId, from, to, "", "", "", "", 0],
+        queryFn: () => fetch(`/api/trades?from=${from}&to=${to}&limit=50&offset=0`).then((r) => r.json()),
+        staleTime: 30_000,
+      });
+    } else if (href === "/analytics") {
+      void qc.prefetchQuery({
+        queryKey: ["analytics", userId],
+        queryFn: () => fetch("/api/analytics").then((r) => r.json()),
+        staleTime: 60_000,
+      });
+    }
+  }
 
   return (
     /* Outer div handles safe-area extension below the 60px bar */
@@ -106,6 +136,8 @@ export default function BottomTabBar() {
               tabIndex={locked ? -1 : undefined}
               aria-disabled={locked}
               onClick={(e) => { if (locked) e.preventDefault(); }}
+              onMouseEnter={() => prefetchNav(href)}
+              onTouchStart={() => prefetchNav(href)}
               style={{
                 flex: 1,
                 display: "flex",

@@ -58,7 +58,7 @@ export default function Shell({ children, user }: ShellProps) {
         <MindEngineStrip />
 
         {/* Bottom tab bar — visible only below md */}
-        <BottomTabBar />
+        <BottomTabBar userId={user?.id ?? ""} />
       </div>
       </CurrencyProvider>
     </NavLockProvider>

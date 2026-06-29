@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type { SetupTag } from "@/db/schema/setup_tags";
 import TradeRow, { type TradeRowData } from "./TradeRow";
 
@@ -89,6 +89,7 @@ export default function JournalClient({ setupTags, userId }: Props) {
       if (!res.ok) throw new Error("Failed to fetch trades");
       return res.json();
     },
+    placeholderData: keepPreviousData,
   });
 
   const trades = data?.data ?? [];
